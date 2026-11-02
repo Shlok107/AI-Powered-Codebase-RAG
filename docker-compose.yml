@@ -1,0 +1,69 @@
+version: '3.8'
+
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: codebase-rag-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: codebase_rag
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d codebase_rag"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: codebase-rag-backend
+    env_file:
+      - .env
+    environment:
+      - APP_ENV=development
+      - APP_NAME=Codebase RAG
+      - API_PREFIX=/api/v1
+      - BACKEND_HOST=0.0.0.0
+      - BACKEND_PORT=8000
+      - DATABASE_URL=postgresql+psycopg://postgres:postgres@db:5432/codebase_rag
+      - CORS_ORIGINS_STR=http://localhost:5173
+      - MAX_UPLOAD_MB=50
+      - MAX_ARCHIVE_FILES=10000
+      - MAX_UNCOMPRESSED_MB=300
+      - MAX_SINGLE_FILE_MB=5
+      - CHUNK_SIZE=1200
+      - CHUNK_OVERLAP=150
+      - RETRIEVAL_TOP_K=6
+      - REPOSITORY_STORAGE_PATH=/app/data/repositories
+    volumes:
+      - ./backend/app:/app/app
+      - ./backend/alembic:/app/alembic
+      - ./backend/alembic.ini:/app/alembic.ini
+      - repo_storage:/app/data/repositories
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    command: >
+      sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: codebase-rag-frontend
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
+  repo_storage:
