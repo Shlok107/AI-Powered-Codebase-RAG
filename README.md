@@ -43,22 +43,22 @@ A full-stack web application that ingests code repositories, indexes their conte
 
 ```bash
 # Clone the repository
-git clone <repository-url>
-cd codebase-rag
+git clone https://github.com/Shlok107/AI-Powered-Codebase-RAG.git
+cd AI-Powered-Codebase-RAG
 
 # Copy environment file
 cp .env.example .env
 
 # Start all services
-docker-compose up -d
+docker compose up -d --build
 
 # Wait for services to be healthy, then run migrations
 docker-compose exec backend alembic upgrade head
 
 # Access the application
 # Frontend: http://localhost:5173
-# Backend API: http://localhost:8000
-# API Docs: http://localhost:8000/docs
+# Backend API: http://localhost:8001
+# API Docs: http://localhost:8001/docs
 ```
 
 ### Manual Development Setup
@@ -231,21 +231,14 @@ codebase-rag/
 - **Local Exposure**: Compose ports bind to loopback; the API has no authentication or per-user authorization and is not suitable for direct public exposure
 - **Dependency Advisories**: Exact lockfile versions are checked against OSV when available; unavailable or capped checks are surfaced as incomplete coverage
 
-## Testing
+## Development documentation
 
-```bash
-# Backend tests
-cd backend
-pytest
+- [Automated testing guide](docs/TESTING.md)
+- [Engineering audit report](docs/AUDIT_REPORT.md)
+- [Implementation status](docs/IMPLEMENTATION_STATUS.md)
+- [Original project implementation plan](docs/codebase_plan.md)
 
-# Frontend tests
-cd frontend
-npm test
-
-# Type checking
-cd frontend
-npm run lint
-```
+Run the test harness from the repository root with `.\scripts\test.ps1 -Scope all` on Windows PowerShell. See the testing guide for database setup and individual test scopes.
 
 ## AWS Deployment (Configuration Only)
 
@@ -257,7 +250,7 @@ The application is designed for AWS deployment with:
 - **IAM**: Least-privilege roles
 - **Secrets Manager**: Secure credential injection
 
-Note: This configuration is provided but not deployed. See `docs/aws-deployment.md` for details.
+Note: This configuration is provided but not deployed. AWS deployment is planned but has not been implemented yet.
 
 ## Limitations
 
@@ -270,7 +263,7 @@ Note: This configuration is provided but not deployed. See `docs/aws-deployment.
 
 ## License
 
-MIT License - see LICENSE file for details.
+A license file has not been added yet.
 
 ## Contributing
 
