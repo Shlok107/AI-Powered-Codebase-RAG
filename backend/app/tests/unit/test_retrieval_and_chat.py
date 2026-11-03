@@ -56,7 +56,7 @@ def test_rrf_ties_use_stable_path_order_and_dedup_preserves_cross_file_sources()
     service = RetrievalService(embedding_provider=object())
     first = chunk(uuid.uuid4(), path="a.py")
     second = chunk(uuid.uuid4(), path="b.py")
-    tied = service._reciprocal_rank_fusion([second, first], [], top_k=2)
+    tied = service._reciprocal_rank_fusion([second], [first], top_k=2)
     assert [item.file_path for item in tied] == ["a.py", "b.py"]
     assert len(service._deduplicate([first, chunk(uuid.uuid4(), path="a.py"), second])) == 2
 
