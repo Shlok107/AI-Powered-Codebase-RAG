@@ -1,4 +1,5 @@
 import uuid
+import re
 from dataclasses import dataclass
 from typing import Optional
 
@@ -37,6 +38,19 @@ class RetrievalService:
         self.embedding_provider = embedding_provider
         self.top_k = settings.retrieval_top_k
 
+    @staticmethod
+    def _deduplicate(chunks: list[RetrievedChunk]) -> list[RetrievedChunk]:
+        unique: list[RetrievedChunk] = []
+        seen: set[str] = set()
+        for chunk in chunks:
+            content = re.sub(r"\s+", " ", chunk.text).strip()
+            key = f"{chunk.file_path}:{content}" if content and chunk.file_path else str(chunk.chunk_id)
+            if key in seen:
+                continue
+            seen.add(key)
+            unique.append(chunk)
+        return unique
+
     async def retrieve(
         self,
         session: AsyncSession,
@@ -52,14 +66,16 @@ class RetrievalService:
         2. PostgreSQL full-text search (tsvector)
         3. Combine scores using reciprocal rank fusion (RRF)
         """
-        k = top_k or self.top_k
+        k = top_k if top_k is not None else self.top_k
+        if k < 1:
+            raise ValueError("top_k must be positive")
 
         # Generate query embedding
         query_embedding = await self.embedding_provider.embed_text(query)
 
         if not query_embedding or all(v == 0.0 for v in query_embedding):
             # Fallback to keyword-only search if no embeddings
-            return await self._keyword_search(session, repository_id, query, k)
+            return self._deduplicate(await self._keyword_search(session, repository_id, query, k))
 
         # Vector search
         vector_results = await self._vector_search(
@@ -72,7 +88,7 @@ class RetrievalService:
         # Combine using Reciprocal Rank Fusion
         combined = self._reciprocal_rank_fusion(vector_results, keyword_results, k)
 
-        return combined
+        return self._deduplicate(combined)
 
     async def _vector_search(
         self,
@@ -232,8 +248,7 @@ class RetrievalService:
         # Sort by combined score and take top_k
         sorted_chunks = sorted(
             all_chunks.values(),
-            key=lambda c: c.combined_score,
-            reverse=True
+            key=lambda c: (-c.combined_score, -max(c.vector_score, c.keyword_score), c.file_path, c.start_line, str(c.chunk_id)),
         )
 
         return sorted_chunks[:top_k]

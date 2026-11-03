@@ -52,6 +52,15 @@ def test_rrf_returns_empty_for_empty_search_results() -> None:
     assert service._reciprocal_rank_fusion([], [], top_k=6) == []
 
 
+def test_rrf_ties_use_stable_path_order_and_dedup_preserves_cross_file_sources() -> None:
+    service = RetrievalService(embedding_provider=object())
+    first = chunk(uuid.uuid4(), path="a.py")
+    second = chunk(uuid.uuid4(), path="b.py")
+    tied = service._reciprocal_rank_fusion([second, first], [], top_k=2)
+    assert [item.file_path for item in tied] == ["a.py", "b.py"]
+    assert len(service._deduplicate([first, chunk(uuid.uuid4(), path="a.py"), second])) == 2
+
+
 @pytest.mark.asyncio
 async def test_keyword_only_retrieval_when_embedding_provider_returns_zero_vector() -> None:
     class ZeroEmbeddingProvider:
@@ -133,6 +142,45 @@ def test_citation_validation_keeps_only_citations_named_in_answer() -> None:
 
 
 @pytest.mark.asyncio
+async def test_repository_citation_validation_checks_ownership_path_lines_and_current_content(monkeypatch) -> None:
+    repository_id, chunk_id = uuid.uuid4(), uuid.uuid4()
+    citation = Citation(chunk_id, "src/core.py", 1, 1, "python", 0.4, "def calculate(): return 42")
+    row = SimpleNamespace(id=chunk_id, relative_path="src/core.py", start_line=1,
+                          end_line=1, text="def calculate(): return 42")
+    session = AsyncMock()
+    session.execute.return_value = [row]
+    monkeypatch.setattr("app.services.chat.get_storage", lambda: SimpleNamespace(
+        read_file=lambda _repo, _path: "def calculate(): return 42\n"))
+    service = ChatService(llm_provider=object(), embedding_provider=object())
+
+    answer, valid = await service._validate_citations_in_repository(
+        session, repository_id, "Answer [Source 1]. [Source 9]", [citation]
+    )
+    assert valid == [citation]
+    assert "[Source 1]" in answer
+    assert "[unverified source]" in answer
+
+
+@pytest.mark.asyncio
+async def test_repository_citation_validation_rejects_stale_or_foreign_source(monkeypatch) -> None:
+    repository_id, chunk_id = uuid.uuid4(), uuid.uuid4()
+    citation = Citation(chunk_id, "src/core.py", 1, 1, "python", 0.4, "old source")
+    row = SimpleNamespace(id=chunk_id, relative_path="src/core.py", start_line=1,
+                          end_line=1, text="old source")
+    session = AsyncMock()
+    session.execute.return_value = [row]
+    monkeypatch.setattr("app.services.chat.get_storage", lambda: SimpleNamespace(
+        read_file=lambda _repo, _path: "new source\n"))
+    service = ChatService(llm_provider=object(), embedding_provider=object())
+
+    answer, valid = await service._validate_citations_in_repository(
+        session, repository_id, "Claim [Source 1]", [citation]
+    )
+    assert valid == []
+    assert "[unverified source]" in answer
+
+
+@pytest.mark.asyncio
 async def test_chat_service_uses_grounded_fallback_when_llm_is_unavailable() -> None:
     class UnavailableLLM:
         model_name = "test-provider"
@@ -154,6 +202,29 @@ async def test_chat_service_uses_grounded_fallback_when_llm_is_unavailable() -> 
     assert result.used_fallback is True
     assert "src/core.py:4-8" in result.answer
     assert len(result.citations) == 1
+
+
+@pytest.mark.asyncio
+async def test_chat_abstains_without_sources_without_calling_llm() -> None:
+    class MustNotCallLLM:
+        model_name = "test-provider"
+
+        async def is_available(self) -> bool:
+            raise AssertionError("LLM availability should not be checked without evidence")
+
+        async def chat(self, *_args, **_kwargs):
+            raise AssertionError("LLM must not be called without evidence")
+
+    service = ChatService(llm_provider=MustNotCallLLM(), embedding_provider=object())
+    service.retrieval.retrieve = AsyncMock(return_value=[])
+    service.retrieval.enrich_with_file_paths = AsyncMock(return_value=[])
+    session = AsyncMock()
+    session.get.return_value = SimpleNamespace(status=RepositoryStatus.INDEXED)
+
+    result = await service.ask(session, uuid.uuid4(), "Question not supported by evidence")
+
+    assert "couldn't find relevant source evidence" in result.answer
+    assert result.citations == []
 
 
 @pytest.mark.asyncio
