@@ -134,8 +134,15 @@ export function SecurityPage() {
       <div className="flex-1 flex items-center justify-center">
         <div className="text-center">
           <AlertCircle className="h-12 w-12 text-text-muted mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-text-primary mb-2">Repository not found</h3>
-          <Button onClick={() => navigate('/repositories')}>Back to Repositories</Button>
+          <h3 className="text-lg font-medium text-text-primary mb-2">
+            {requestError ? 'Could not load security data' : 'Repository not found'}
+          </h3>
+          {requestError && <p className="mb-4 text-sm text-text-secondary" role="alert">{requestError}</p>}
+          {requestError ? (
+            <Button onClick={fetchData} disabled={loading}>Retry</Button>
+          ) : (
+            <Button onClick={() => navigate('/repositories')}>Back to Repositories</Button>
+          )}
         </div>
       </div>
     )

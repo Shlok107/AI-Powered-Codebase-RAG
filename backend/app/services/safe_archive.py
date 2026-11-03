@@ -3,7 +3,7 @@ import os
 import tempfile
 import zipfile
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Optional
 
 from app.core.config import Settings
@@ -235,21 +235,27 @@ class SafeArchiveExtractor:
                     file_count = 0
                     languages = set()
                     extracted_files = []
+                    seen_paths: set[str] = set()
 
                     for info in zf.infolist():
                         # Skip directories
                         if info.is_dir():
                             continue
 
-                        # Check for path traversal
-                        if os.path.isabs(info.filename) or ".." in info.filename:
-                            raise ArchiveValidationError(f"Path traversal attempt detected: {info.filename}")
-
                         # Normalize path - handle both forward and backward slashes
                         normalized_filename = info.filename.replace("\\", "/")
-                        
-                        # Check for path traversal after normalization
-                        if ".." in normalized_filename.split("/"):
+                        windows_path = PureWindowsPath(info.filename)
+                        posix_path = PurePosixPath(normalized_filename)
+
+                        # ZIP names are platform-independent; reject Windows drives and roots even
+                        # when extraction is running on POSIX, and check normalized path segments.
+                        if (
+                            os.path.isabs(info.filename)
+                            or posix_path.is_absolute()
+                            or windows_path.is_absolute()
+                            or bool(windows_path.drive)
+                            or ".." in posix_path.parts
+                        ):
                             raise ArchiveValidationError(f"Path traversal attempt detected: {info.filename}")
 
                         # Normalize path
@@ -278,6 +284,12 @@ class SafeArchiveExtractor:
                         if not self._is_supported_file(rel_path):
                             continue
 
+                        normalized_relative_path = posix_path.as_posix()
+                        path_key = normalized_relative_path.casefold()
+                        if path_key in seen_paths:
+                            raise ArchiveValidationError(f"Duplicate file path detected: {normalized_relative_path}")
+                        seen_paths.add(path_key)
+
                         file_count += 1
                         lang = self._detect_language(rel_path)
                         if lang:
@@ -291,7 +303,7 @@ class SafeArchiveExtractor:
                             content = ""
                         
                         content_hash = hashlib.sha256(content.encode()).hexdigest()
-                        line_count = content.count("\n") + 1 if content else 0
+                        line_count = len(content.splitlines()) if content else 0
                         size_bytes = info.file_size
                         
                         extracted_files.append(ExtractedFile(

@@ -1,0 +1,58 @@
+name: Automated tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_DB: codebase_rag_test
+          POSTGRES_USER: codebase_rag_test
+          POSTGRES_PASSWORD: codebase_rag_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U codebase_rag_test -d codebase_rag_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      APP_ENV: test
+      DATABASE_URL: postgresql+psycopg://codebase_rag_test:codebase_rag_test@127.0.0.1:5432/codebase_rag_test
+      TEST_DATABASE_URL: postgresql+psycopg://codebase_rag_test:codebase_rag_test@127.0.0.1:5432/codebase_rag_test
+      PYTHON_DOTENV_DISABLED: "1"
+      LLM_PROVIDER: none
+      EMBEDDING_PROVIDER: none
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+      - name: Install backend and test dependencies
+        working-directory: backend
+        run: python -m pip install -e ".[dev]"
+      - name: Run backend unit, API, database and worker tests
+        working-directory: backend
+        run: python -m pytest --cov-fail-under=70
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Run frontend tests and coverage
+        working-directory: frontend
+        run: npm run test:coverage
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build

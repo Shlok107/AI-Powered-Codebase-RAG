@@ -8,13 +8,19 @@ from app.core.config import get_settings
 
 settings = get_settings()
 
-# Create async engine
+# Create async engine. NullPool does not accept pool sizing options.
+engine_options = {}
+if not settings.is_test:
+    engine_options.update(
+        pool_size=settings.database_pool_size,
+        max_overflow=settings.database_max_overflow,
+    )
+
 engine = create_async_engine(
     settings.database_url,
     echo=settings.is_development,
     poolclass=NullPool if settings.is_test else None,
-    pool_size=settings.database_pool_size,
-    max_overflow=settings.database_max_overflow,
+    **engine_options,
 )
 
 # Session factory

@@ -88,6 +88,7 @@ backend/alembic/versions/*_*.py
 # Test coverage
 coverage.xml
 .coverage
+coverage/
 
 # TypeScript
 *.tsbuildinfo

@@ -38,6 +38,7 @@ dev = [
     "pytest-cov>=4.1.0",
     "httpx>=0.26.0",
     "faker>=22.0.0",
+    "psycopg[binary]>=3.2.0",
     "ruff>=0.3.0",
     "mypy>=1.8.0",
     "types-requests>=2.31.0",
@@ -69,10 +70,20 @@ enable_error_code = ["unused-ignore", "attr-defined"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
 testpaths = ["app/tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
+addopts = "--cov=app --cov-report=term-missing:skip-covered --cov-report=xml:coverage.xml --cov-fail-under=65"
+markers = [
+    "unit: tests that do not require external services or a database",
+    "integration: tests that exercise the API or PostgreSQL-backed application behavior",
+    "database: tests that require TEST_DATABASE_URL pointing to an isolated PostgreSQL test database with pgvector",
+]
+
+[tool.coverage.run]
+omit = ["app/tests/*"]
 
 [build-system]
 requires = ["setuptools>=68.0", "wheel"]

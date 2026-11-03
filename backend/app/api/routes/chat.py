@@ -10,6 +10,7 @@ from app.db.session import get_session
 from app.db.models import Repository
 from app.schemas import ChatRequest, ChatResponse, Citation
 from app.services.chat import ChatService
+from app.services.llm import ChatMessage
 
 router = APIRouter()
 
@@ -61,7 +62,7 @@ async def chat_with_repository(
     history = []
     if request.conversation_history:
         for msg in request.conversation_history[-4:]:  # Keep last 4 messages
-            history.append({"role": msg.get("role"), "content": msg.get("content")})
+            history.append(ChatMessage(role=msg.get("role", "user"), content=msg.get("content", "")))
 
     # Create chat service and ask
     chat_service = ChatService()

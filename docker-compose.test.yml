@@ -1,0 +1,16 @@
+services:
+  postgres-test:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: codebase_rag_test
+      POSTGRES_USER: codebase_rag_test
+      POSTGRES_PASSWORD: codebase_rag_test
+    ports:
+      - "127.0.0.1:55432:5432"
+    tmpfs:
+      - /var/lib/postgresql/data:rw,noexec,nosuid,size=1g
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U codebase_rag_test -d codebase_rag_test"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
