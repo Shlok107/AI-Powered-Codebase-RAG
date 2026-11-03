@@ -231,15 +231,6 @@ codebase-rag/
 - **Local Exposure**: Compose ports bind to loopback; the API has no authentication or per-user authorization and is not suitable for direct public exposure
 - **Dependency Advisories**: Exact lockfile versions are checked against OSV when available; unavailable or capped checks are surfaced as incomplete coverage
 
-## Development documentation
-
-- [Automated testing guide](docs/TESTING.md)
-- [Engineering audit report](docs/AUDIT_REPORT.md)
-- [Implementation status](docs/IMPLEMENTATION_STATUS.md)
-- [Original project implementation plan](docs/codebase_plan.md)
-
-Run the test harness from the repository root with `.\scripts\test.ps1 -Scope all` on Windows PowerShell. See the testing guide for database setup and individual test scopes.
-
 ## AWS Deployment (Configuration Only)
 
 The application is designed for AWS deployment with:
