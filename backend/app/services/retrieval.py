@@ -75,7 +75,9 @@ class RetrievalService:
 
         if not query_embedding or all(v == 0.0 for v in query_embedding):
             # Fallback to keyword-only search if no embeddings
-            return self._deduplicate(await self._keyword_search(session, repository_id, query, k))
+            keyword_results = await self._keyword_search(session, repository_id, query, k)
+            keyword_results = await self.enrich_with_file_paths(session, keyword_results)
+            return self._deduplicate(keyword_results)
 
         # Vector search
         vector_results = await self._vector_search(
@@ -88,6 +90,9 @@ class RetrievalService:
         # Combine using Reciprocal Rank Fusion
         combined = self._reciprocal_rank_fusion(vector_results, keyword_results, k)
 
+        # Resolve paths before deduplication: identical code in different files
+        # represents distinct sources and must remain separately citable.
+        combined = await self.enrich_with_file_paths(session, combined)
         return self._deduplicate(combined)
 
     async def _vector_search(
@@ -221,11 +226,13 @@ class RetrievalService:
         vector_ranks = {chunk.chunk_id: i + 1 for i, chunk in enumerate(vector_results)}
         keyword_ranks = {chunk.chunk_id: i + 1 for i, chunk in enumerate(keyword_results)}
 
-        # Collect all unique chunks
+        # Collect all unique chunks and remember stable first-seen rank order.
         all_chunks = {}
-        for chunk in vector_results + keyword_results:
+        first_seen_order = {}
+        for position, chunk in enumerate(vector_results + keyword_results):
             if chunk.chunk_id not in all_chunks:
                 all_chunks[chunk.chunk_id] = chunk
+                first_seen_order[chunk.chunk_id] = position
 
         # Calculate RRF scores
         for chunk_id, chunk in all_chunks.items():
@@ -246,9 +253,16 @@ class RetrievalService:
                 chunk.keyword_score = chunk.keyword_score
 
         # Sort by combined score and take top_k
+        def tie_breaker(chunk: RetrievedChunk) -> tuple:
+            # When paths are available, use them for a deterministic lexical
+            # order. Before enrichment, preserve the original retrieval rank.
+            if chunk.file_path:
+                return (0, chunk.file_path, chunk.start_line, str(chunk.chunk_id))
+            return (1, first_seen_order[chunk.chunk_id])
+
         sorted_chunks = sorted(
             all_chunks.values(),
-            key=lambda c: (-c.combined_score, -max(c.vector_score, c.keyword_score), c.file_path, c.start_line, str(c.chunk_id)),
+            key=lambda c: (-c.combined_score, tie_breaker(c)),
         )
 
         return sorted_chunks[:top_k]
@@ -278,6 +292,6 @@ class RetrievalService:
         path_map = {row.id: row.relative_path for row in result}
 
         for chunk in chunks:
-            chunk.file_path = path_map.get(chunk.chunk_id, "")
+            chunk.file_path = path_map.get(chunk.chunk_id, chunk.file_path)
 
         return chunks

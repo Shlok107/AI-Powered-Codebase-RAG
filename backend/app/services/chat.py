@@ -214,11 +214,6 @@ The sources provided are from the user's repository. Each source shows the file 
             session, repository_id, question
         )
 
-        # Enrich with file paths
-        retrieved_chunks = await self.retrieval.enrich_with_file_paths(
-            session, retrieved_chunks
-        )
-
         retrieval_time_ms = int((time.time() - retrieval_start) * 1000)
 
         # Build context and citations

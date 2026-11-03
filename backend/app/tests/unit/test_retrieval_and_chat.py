@@ -239,8 +239,9 @@ async def test_chat_service_propagates_llm_provider_failure() -> None:
             raise RuntimeError("provider unavailable")
 
     service = ChatService(llm_provider=FailingLLM(), embedding_provider=object())
-    service.retrieval.retrieve = AsyncMock(return_value=[])
-    service.retrieval.enrich_with_file_paths = AsyncMock(return_value=[])
+    service.retrieval.retrieve = AsyncMock(
+        return_value=[chunk(uuid.uuid4(), path="src/core.py")]
+    )
     session = AsyncMock()
     session.get.return_value = SimpleNamespace(status=RepositoryStatus.INDEXED)
 
