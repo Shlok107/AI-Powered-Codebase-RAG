@@ -164,7 +164,7 @@ async def test_embedding_failure_does_not_mark_indexing_as_success(
     monkeypatch.setattr(
         indexing_worker,
         "create_embedding_provider",
-        lambda: FixedEmbeddingProvider(failure=RuntimeError("embedding service unavailable")),
+        lambda: FixedEmbeddingProvider(failure=RuntimeError("provider secret at C:\\private\\token")),
     )
 
     await indexing_worker.run_indexing_job(str(repository.id), str(job.id))
@@ -176,7 +176,8 @@ async def test_embedding_failure_does_not_mark_indexing_as_success(
     assert repository.chunk_count == 0
     assert repository.error_summary == "No chunks generated from repository files"
     assert repo_file.indexing_status == "failed"
-    assert "embedding service unavailable" in repo_file.skip_reason
+    assert repo_file.skip_reason == "File could not be indexed due to an internal error."
+    assert "private" not in repo_file.skip_reason
     assert job.status == JobStatus.FAILED
     assert job.error_message == repository.error_summary
 
@@ -218,7 +219,7 @@ async def test_database_query_failure_marks_repository_failed_instead_of_stuck_p
             return repository if model is Repository else None
 
         async def execute(self, *_args, **_kwargs):
-            raise RuntimeError("database unavailable")
+            raise RuntimeError("database password secret-value")
 
         async def commit(self):
             return None
@@ -228,4 +229,5 @@ async def test_database_query_failure_marks_repository_failed_instead_of_stuck_p
     await indexing_worker.run_indexing_job(str(repository.id))
 
     assert repository.status == RepositoryStatus.FAILED
-    assert repository.error_summary == "database unavailable"
+    assert repository.error_summary == "Indexing failed due to an internal error."
+    assert "secret-value" not in repository.error_summary

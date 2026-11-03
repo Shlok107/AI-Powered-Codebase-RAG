@@ -177,6 +177,7 @@ export function SecurityPage() {
         </Button>
       </div>
       {requestError && <div className="rounded-md border border-red-500/30 bg-red-500/5 px-4 py-3 text-sm text-red-300" role="alert">{requestError}</div>}
+      {latestScan?.error_summary && <div className="rounded-md border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-sm text-amber-200" role="status">{latestScan.error_summary}</div>}
 
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-y border-surface-border py-2 text-xs">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2">

@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import get_settings
 from app.core.errors import register_exception_handlers
 from app.core.logging import configure_logging, get_logger
+from app.core.request_limits import UploadBodyLimitMiddleware
 from app.db.session import close_db, init_db
 from app.api.routes import health, repositories, indexing, chat, security
 
@@ -35,13 +36,22 @@ app = FastAPI(
     redoc_url="/redoc" if settings.is_development else None,
 )
 
-# CORS
+# Multipart parsing may spool upload bodies before route code runs. Apply a bounded
+# body size at the ASGI boundary as well as a bounded file read in the route.
+app.add_middleware(
+    UploadBodyLimitMiddleware,
+    upload_path=f"{settings.api_prefix}/repositories/upload",
+    max_bytes=settings.max_upload_mb * 1024 * 1024 + 1024 * 1024,
+)
+
+# CORS wraps the upload limiter so rejected requests include the configured CORS
+# response headers. This application uses no cookie or browser credential auth.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Accept", "Content-Type", "X-Request-ID"],
 )
 
 # Exception handlers

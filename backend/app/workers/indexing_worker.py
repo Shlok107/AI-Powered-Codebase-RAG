@@ -182,10 +182,10 @@ async def run_indexing_job(repository_id: str, job_id: str | None = None) -> Non
                         "file_indexing_failed",
                         repository_id=repository_id,
                         file=repo_file.relative_path,
-                        error=str(e),
+                        error_type=type(e).__name__,
                     )
                     repo_file.indexing_status = "failed"
-                    repo_file.skip_reason = f"Indexing error: {str(e)}"
+                    repo_file.skip_reason = "File could not be indexed due to an internal error."
                     await session.commit()
 
             # Update repository status - only mark as indexed if we have chunks
@@ -222,7 +222,7 @@ async def run_indexing_job(repository_id: str, job_id: str | None = None) -> Non
 
         except Exception as e:
             repository.status = RepositoryStatus.FAILED
-            repository.error_summary = str(e)
+            repository.error_summary = "Indexing failed due to an internal error."
 
             if job_id:
                 job = await session.get(BackgroundJob, uuid.UUID(job_id))
@@ -230,10 +230,10 @@ async def run_indexing_job(repository_id: str, job_id: str | None = None) -> Non
                     job.status = JobStatus.FAILED
                     from datetime import datetime
                     job.completed_at = datetime.utcnow()
-                    job.error_message = str(e)
+                    job.error_message = "Indexing failed due to an internal error."
 
             await session.commit()
-            logger.error("indexing_failed", repository_id=repository_id, error=str(e))
+            logger.error("indexing_failed", repository_id=repository_id, error_type=type(e).__name__)
 
 
 from datetime import datetime

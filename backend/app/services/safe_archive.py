@@ -1,17 +1,14 @@
 import hashlib
 import os
+import stat
 import tempfile
 import zipfile
+import zlib
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Optional
 
 from app.core.config import Settings
-from app.core.logging import get_logger
-
-logger = get_logger(__name__)
-
-
 class ArchiveValidationError(Exception):
     """Raised when archive validation fails."""
     pass
@@ -111,6 +108,8 @@ class SafeArchiveExtractor:
         self.max_uncompressed_bytes = settings.max_uncompressed_mb * 1024 * 1024
         self.max_single_file_bytes = settings.max_single_file_mb * 1024 * 1024
         self.max_files = settings.max_archive_files
+        self.max_path_length = settings.max_archive_path_length
+        self.max_compression_ratio = settings.max_archive_compression_ratio
 
     def _is_ignored_path(self, path: Path) -> bool:
         """Check if a path should be ignored."""
@@ -226,22 +225,20 @@ class SafeArchiveExtractor:
             try:
                 with zipfile.ZipFile(zip_path, "r") as zf:
                     # Check file count
-                    if len(zf.infolist()) > self.max_files:
+                    entries = zf.infolist()
+                    if len(entries) > self.max_files:
                         raise ArchiveValidationError(
-                            f"Archive contains too many files: {len(zf.infolist())} > {self.max_files}"
+                            f"Archive contains too many files (maximum {self.max_files})."
                         )
 
-                    total_uncompressed = 0
+                    total_declared_uncompressed = 0
+                    total_actual_uncompressed = 0
                     file_count = 0
                     languages = set()
                     extracted_files = []
                     seen_paths: set[str] = set()
 
-                    for info in zf.infolist():
-                        # Skip directories
-                        if info.is_dir():
-                            continue
-
+                    for info in entries:
                         # Normalize path - handle both forward and backward slashes
                         normalized_filename = info.filename.replace("\\", "/")
                         windows_path = PureWindowsPath(info.filename)
@@ -255,26 +252,45 @@ class SafeArchiveExtractor:
                             or windows_path.is_absolute()
                             or bool(windows_path.drive)
                             or ".." in posix_path.parts
+                            or "\x00" in info.filename
                         ):
-                            raise ArchiveValidationError(f"Path traversal attempt detected: {info.filename}")
+                            raise ArchiveValidationError("Archive contains an unsafe path.")
+
+                        if len(normalized_filename) > self.max_path_length:
+                            raise ArchiveValidationError("Archive contains a path that exceeds the configured limit.")
+
+                        unix_mode = info.external_attr >> 16
+                        if stat.S_ISLNK(unix_mode):
+                            raise ArchiveValidationError("Archive contains a symbolic link, which is not supported.")
+
+                        # Validate metadata for every entry, including ignored and unsupported files.
+                        if info.file_size < 0 or info.compress_size < 0:
+                            raise ArchiveValidationError("Archive contains invalid file size metadata.")
+                        total_declared_uncompressed += info.file_size
+                        if total_declared_uncompressed > self.max_uncompressed_bytes:
+                            raise ArchiveValidationError("Archive exceeds the configured total uncompressed size limit.")
+                        if info.file_size and (
+                            info.compress_size == 0
+                            or info.file_size / info.compress_size > self.max_compression_ratio
+                        ):
+                            raise ArchiveValidationError("Archive contains an entry with an excessive compression ratio.")
+
+                        normalized_relative_path = posix_path.as_posix()
+                        path_key = normalized_relative_path.casefold()
+                        if path_key in seen_paths:
+                            raise ArchiveValidationError("Duplicate archive file paths are not allowed.")
+                        seen_paths.add(path_key)
+
+                        # Directory entries have already been checked for unsafe names and metadata.
+                        if info.is_dir():
+                            continue
 
                         # Normalize path
                         normalized_path = (extract_path / normalized_filename).resolve()
                         try:
                             normalized_path.relative_to(extract_path.resolve())
                         except ValueError:
-                            raise ArchiveValidationError(f"Path escapes extraction directory: {info.filename}")
-
-                        # Check file size
-                        if info.file_size > self.max_single_file_bytes:
-                            logger.warning("skipping_large_file", filename=info.filename, size=info.file_size)
-                            continue
-
-                        total_uncompressed += info.file_size
-                        if total_uncompressed > self.max_uncompressed_bytes:
-                            raise ArchiveValidationError(
-                                f"Total uncompressed size exceeds limit: {total_uncompressed} > {self.max_uncompressed_bytes}"
-                            )
+                            raise ArchiveValidationError("Archive contains a path outside its extraction directory.")
 
                         # Check if file should be processed
                         rel_path = Path(normalized_filename)
@@ -284,27 +300,37 @@ class SafeArchiveExtractor:
                         if not self._is_supported_file(rel_path):
                             continue
 
-                        normalized_relative_path = posix_path.as_posix()
-                        path_key = normalized_relative_path.casefold()
-                        if path_key in seen_paths:
-                            raise ArchiveValidationError(f"Duplicate file path detected: {normalized_relative_path}")
-                        seen_paths.add(path_key)
+                        if info.file_size > self.max_single_file_bytes:
+                            raise ArchiveValidationError("An indexable archive file exceeds the configured per-file size limit.")
 
                         file_count += 1
                         lang = self._detect_language(rel_path)
                         if lang:
                             languages.add(lang)
 
-                        # Read file content directly from ZIP (avoids filesystem path issues)
+                        # Stream decompression and enforce limits against actual output bytes;
+                        # ZipInfo sizes alone are untrusted archive metadata.
                         try:
-                            raw_content = zf.read(info)
-                            content = raw_content.decode("utf-8", errors="replace")
-                        except Exception:
-                            content = ""
+                            raw_content = bytearray()
+                            actual_file_size = 0
+                            with zf.open(info, "r") as zipped_file:
+                                while chunk := zipped_file.read(64 * 1024):
+                                    actual_file_size += len(chunk)
+                                    total_actual_uncompressed += len(chunk)
+                                    if actual_file_size > self.max_single_file_bytes:
+                                        raise ArchiveValidationError("An archive file exceeds the configured per-file size limit.")
+                                    if total_actual_uncompressed > self.max_uncompressed_bytes:
+                                        raise ArchiveValidationError("Archive exceeds the configured total uncompressed size limit.")
+                                    raw_content.extend(chunk)
+                            content = bytes(raw_content).decode("utf-8", errors="replace")
+                        except ArchiveValidationError:
+                            raise
+                        except (zipfile.BadZipFile, RuntimeError, EOFError, NotImplementedError, zlib.error, OSError) as e:
+                            raise ArchiveValidationError("Archive is malformed or contains unsupported compressed data.") from e
                         
                         content_hash = hashlib.sha256(content.encode()).hexdigest()
                         line_count = len(content.splitlines()) if content else 0
-                        size_bytes = info.file_size
+                        size_bytes = actual_file_size
                         
                         extracted_files.append(ExtractedFile(
                             relative_path=normalized_filename,
@@ -315,11 +341,11 @@ class SafeArchiveExtractor:
                             content_hash=content_hash,
                         ))
 
-            except zipfile.BadZipFile as e:
-                raise ArchiveValidationError(f"Invalid ZIP file: {str(e)}")
+            except (zipfile.BadZipFile, EOFError, OSError) as e:
+                raise ArchiveValidationError("Invalid ZIP archive.") from e
 
             return ExtractResult(
                 files=extracted_files,
                 languages=sorted(languages),
-                total_size=total_uncompressed,
+                total_size=total_declared_uncompressed,
             )

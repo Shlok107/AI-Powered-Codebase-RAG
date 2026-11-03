@@ -1,5 +1,7 @@
 from pathlib import Path
-from zipfile import ZipFile
+import stat
+from io import BytesIO
+from zipfile import ZipFile, ZipInfo
 
 import pytest
 
@@ -48,7 +50,7 @@ async def test_empty_archive_has_no_files_or_languages(extractor, zip_bytes) -> 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "path",
-    ["../escape.py", "..\\escape.py", "/absolute.py", "C:\\outside.py"],
+    ["../escape.py", "..\\escape.py", "/absolute.py", "//server/share/a.py", "\\\\server\\share\\a.py", "C:\\outside.py"],
 )
 async def test_archive_rejects_posix_and_windows_path_escape_forms(extractor, zip_bytes, path) -> None:
     with pytest.raises(ArchiveValidationError):
@@ -87,6 +89,46 @@ async def test_archive_file_count_limit_is_enforced(zip_bytes) -> None:
 
     with pytest.raises(ArchiveValidationError, match="too many files"):
         await extractor.extract(zip_bytes([("a.py", "pass"), ("b.py", "pass")]), "repo-id")
+
+
+@pytest.mark.asyncio
+async def test_archive_rejects_symlink_entries(zip_bytes) -> None:
+    buffer = BytesIO()
+    info = ZipInfo("src/link.py")
+    info.create_system = 3
+    info.external_attr = (stat.S_IFLNK | 0o777) << 16
+    with ZipFile(buffer, "w") as archive:
+        archive.writestr(info, "../../outside.py")
+
+    with pytest.raises(ArchiveValidationError, match="symbolic link"):
+        await SafeArchiveExtractor(Settings(_env_file=None)).extract(buffer.getvalue(), "repo-id")
+
+
+@pytest.mark.asyncio
+async def test_archive_rejects_excessive_compression_ratio(zip_bytes) -> None:
+    extractor = SafeArchiveExtractor(Settings(_env_file=None, max_archive_compression_ratio=2))
+
+    with pytest.raises(ArchiveValidationError, match="compression ratio"):
+        await extractor.extract(zip_bytes([("src/repeated.py", "x" * 20_000)]), "repo-id")
+
+
+@pytest.mark.asyncio
+async def test_archive_rejects_oversized_supported_files_instead_of_silently_skipping(zip_bytes) -> None:
+    extractor = SafeArchiveExtractor(Settings(_env_file=None, max_single_file_mb=1))
+    large_source = "0123456789abcdef" * 65_537
+
+    with pytest.raises(ArchiveValidationError, match="per-file size limit"):
+        await extractor.extract(zip_bytes([("src/large.py", large_source)]), "repo-id")
+
+
+@pytest.mark.asyncio
+async def test_archive_error_does_not_echo_untrusted_member_paths(extractor, zip_bytes) -> None:
+    malicious_name = "../private/path-secret.py"
+
+    with pytest.raises(ArchiveValidationError) as exc_info:
+        await extractor.extract(zip_bytes([(malicious_name, "pass")]), "repo-id")
+
+    assert malicious_name not in str(exc_info.value)
 
 
 def test_supported_and_unknown_language_detection(extractor) -> None:

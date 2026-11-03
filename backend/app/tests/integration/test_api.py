@@ -85,6 +85,25 @@ async def test_repository_list_and_details_use_persisted_database_values(
 
 
 @pytest.mark.asyncio
+async def test_repository_list_rejects_unbounded_pagination(api_client) -> None:
+    oversized_limit = await api_client.get("/api/v1/repositories", params={"limit": 101})
+    negative_offset = await api_client.get("/api/v1/repositories", params={"offset": -1})
+
+    assert oversized_limit.status_code == 422
+    assert negative_offset.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_file_content_rejects_oversized_path_parameter(api_client) -> None:
+    response = await api_client.get(
+        f"/api/v1/repositories/{uuid.uuid4()}/files/content",
+        params={"path": "a" * 1025},
+    )
+
+    assert response.status_code == 422
+
+
+@pytest.mark.asyncio
 async def test_repository_detail_and_file_listing_return_not_found_for_missing_repository(api_client) -> None:
     missing_id = uuid.uuid4()
 
@@ -97,7 +116,7 @@ async def test_repository_detail_and_file_listing_return_not_found_for_missing_r
 
 
 @pytest.mark.asyncio
-async def test_valid_zip_upload_persists_repository_files_and_queues_indexing(
+async def test_valid_zip_upload_persists_repository_files_and_queues_tracked_indexing_job(
     api_client, db_session, monkeypatch, tmp_path, zip_bytes
 ) -> None:
     from app.services.storage import RepositoryStorage
@@ -120,8 +139,8 @@ async def test_valid_zip_upload_persists_repository_files_and_queues_indexing(
             select(RepositoryFile).where(RepositoryFile.repository_id == repository_id).order_by(RepositoryFile.relative_path)
         )
     ).scalars().all()
-    job_count = await db_session.scalar(
-        select(BackgroundJob.id).where(
+    indexing_job = await db_session.scalar(
+        select(BackgroundJob).where(
             BackgroundJob.repository_id == repository_id,
             BackgroundJob.job_type == JobType.INDEXING,
         )
@@ -130,8 +149,14 @@ async def test_valid_zip_upload_persists_repository_files_and_queues_indexing(
     assert [item.relative_path for item in files] == ["README.md", "src/main.py"]
     assert all(item.indexing_status == "pending" for item in files)
     assert storage.read_file(repository_id, "src/main.py") == "def main():\n    return 42\n"
-    # The current upload flow schedules the indexing worker directly, without a BackgroundJob row.
-    assert job_count is None
+    assert indexing_job is not None
+    assert indexing_job.status == JobStatus.QUEUED
+
+    duplicate_index = await api_client.post(
+        f"/api/v1/repositories/{repository_id}/index", json={"force": True}
+    )
+    assert duplicate_index.status_code == 409
+    assert duplicate_index.json()["detail"]["code"] == "INDEXING_IN_PROGRESS"
 
 
 @pytest.mark.asyncio
@@ -156,6 +181,27 @@ async def test_upload_rejects_non_zip_and_malformed_archive_without_persisting_r
     ).scalars().all()
     assert len(failed_repositories) == 1
     assert failed_repositories[0].file_count == 0
+
+
+@pytest.mark.asyncio
+async def test_upload_processing_error_does_not_disclose_internal_details(
+    api_client, db_session, monkeypatch, zip_bytes
+) -> None:
+    secret_detail = "C:\\private\\data\\repository.sqlite: access denied"
+
+    async def fail_ingestion(*_args, **_kwargs):
+        raise RuntimeError(secret_detail)
+
+    monkeypatch.setattr("app.api.routes.repositories.ingest_repository", fail_ingestion)
+    response = await api_client.post(
+        "/api/v1/repositories/upload",
+        files={"file": ("sample.zip", zip_bytes([("main.py", "pass")]), "application/zip")},
+    )
+
+    repository = (await db_session.execute(select(Repository))).scalar_one()
+    assert response.status_code == 500
+    assert secret_detail not in response.text
+    assert repository.error_summary == "Repository ingestion failed due to an internal error."
 
 
 @pytest.mark.asyncio
@@ -190,6 +236,20 @@ async def test_manual_index_endpoint_validates_request_body(api_client, db_sessi
     response = await api_client.post(f"/api/v1/repositories/{repo.id}/index", json={"force": "sometimes"})
 
     assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_manual_index_rejects_duplicate_active_job(api_client, db_session, repository_factory) -> None:
+    repo = repository_factory()
+    db_session.add(repo)
+    await db_session.flush()
+    db_session.add(BackgroundJob(repository_id=repo.id, job_type=JobType.INDEXING, status=JobStatus.QUEUED))
+    await db_session.commit()
+
+    response = await api_client.post(f"/api/v1/repositories/{repo.id}/index", json={"force": True})
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "INDEXING_IN_PROGRESS"
 
 
 @pytest.mark.asyncio
@@ -275,6 +335,38 @@ async def test_chat_maps_provider_failures_to_stable_500_response(api_client, db
 
 
 @pytest.mark.asyncio
+async def test_database_failure_does_not_log_or_return_exception_text(api_client, monkeypatch) -> None:
+    from unittest.mock import Mock
+
+    from sqlalchemy.exc import SQLAlchemyError
+
+    from app.db.session import get_session
+    from app.main import app
+
+    secret_detail = "database password sentinel-value"
+    original_override = app.dependency_overrides.get(get_session)
+    logger = Mock()
+    monkeypatch.setattr("app.core.errors.logger", logger)
+
+    async def broken_session():
+        raise SQLAlchemyError(secret_detail)
+
+    app.dependency_overrides[get_session] = broken_session
+    try:
+        response = await api_client.get("/api/v1/repositories")
+    finally:
+        if original_override is None:
+            app.dependency_overrides.pop(get_session, None)
+        else:
+            app.dependency_overrides[get_session] = original_override
+
+    assert response.status_code == 500
+    assert secret_detail not in response.text
+    assert secret_detail not in repr(logger.mock_calls)
+    assert logger.error.called
+
+
+@pytest.mark.asyncio
 async def test_chat_converts_and_bounds_conversation_history_for_provider(api_client, db_session, repository_factory, monkeypatch) -> None:
     from app.services.chat import ChatResult
     from app.services.llm import ChatMessage
@@ -301,6 +393,22 @@ async def test_chat_converts_and_bounds_conversation_history_for_provider(api_cl
 
     assert response.status_code == 200
     assert [message.content for message in observed["history"]] == ["message 2", "message 3", "message 4", "message 5"]
+
+
+@pytest.mark.asyncio
+async def test_chat_rejects_oversized_history_count_and_message(api_client) -> None:
+    repository_id = uuid.uuid4()
+    too_many_messages = await api_client.post(
+        f"/api/v1/repositories/{repository_id}/chat",
+        json={"question": "test", "conversation_history": [{"role": "user", "content": "x"}] * 21},
+    )
+    oversized_message = await api_client.post(
+        f"/api/v1/repositories/{repository_id}/chat",
+        json={"question": "test", "conversation_history": [{"role": "user", "content": "x" * 5001}]},
+    )
+
+    assert too_many_messages.status_code == 422
+    assert oversized_message.status_code == 422
 
 
 @pytest.mark.asyncio

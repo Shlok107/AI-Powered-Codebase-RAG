@@ -12,12 +12,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Install Python dependencies
 COPY pyproject.toml ./
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -e ".[dev,local-embeddings]"
+    pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu "torch>=2.2.0" && \
+    pip install --no-cache-dir -e ".[local-embeddings]"
 
 # Runtime stage
 FROM python:3.11-slim
 
 WORKDIR /app
+
+# Compose overrides this for local development. A directly deployed image must
+# not enable development documentation or SQL statement logging by default.
+ENV APP_ENV=production
 
 # Install runtime dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \

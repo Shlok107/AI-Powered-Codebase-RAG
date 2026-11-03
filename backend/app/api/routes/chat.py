@@ -1,8 +1,9 @@
 import uuid
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
+from typing import Literal
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,8 +16,13 @@ from app.services.llm import ChatMessage
 router = APIRouter()
 
 
+class ConversationHistoryMessage(BaseModel):
+    role: Literal["user", "assistant"] = "user"
+    content: str = Field(default="", max_length=5000)
+
+
 class ChatRequestWithHistory(ChatRequest):
-    conversation_history: Optional[list[dict]] = None
+    conversation_history: Optional[list[ConversationHistoryMessage]] = Field(default=None, max_length=20)
 
 
 class ChatResponseDetailed(BaseModel):
@@ -62,7 +68,7 @@ async def chat_with_repository(
     history = []
     if request.conversation_history:
         for msg in request.conversation_history[-4:]:  # Keep last 4 messages
-            history.append(ChatMessage(role=msg.get("role", "user"), content=msg.get("content", "")))
+            history.append(ChatMessage(role=msg.role, content=msg.content))
 
     # Create chat service and ask
     chat_service = ChatService()
@@ -73,13 +79,13 @@ async def chat_with_repository(
             question=request.question,
             conversation_history=history,
         )
-    except ValueError as e:
+    except ValueError:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"code": "INVALID_REQUEST", "message": str(e), "details": {}}
+            detail={"code": "INVALID_REQUEST", "message": "The chat request could not be processed.", "details": {}}
         )
     except Exception as e:
-        logger.error("chat_failed", repository_id=str(repository_id), error=str(e))
+        logger.error("chat_failed", repository_id=str(repository_id), error_type=type(e).__name__)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={"code": "INTERNAL_ERROR", "message": "Failed to process chat request", "details": {}}

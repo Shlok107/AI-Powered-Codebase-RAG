@@ -83,8 +83,6 @@ def register_exception_handlers(app: FastAPI) -> None:
         logger.error(
             "application_error",
             code=exc.code,
-            message=exc.message,
-            details=exc.details,
             path=request.url.path,
         )
         return JSONResponse(
@@ -102,8 +100,7 @@ def register_exception_handlers(app: FastAPI) -> None:
     async def validation_error_handler(request: Request, exc: ValidationError) -> JSONResponse:
         logger.warning(
             "validation_error",
-            message=str(exc),
-            details=exc.details,
+            error_type=type(exc).__name__,
             path=request.url.path,
         )
         return JSONResponse(
@@ -119,7 +116,11 @@ def register_exception_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(SQLAlchemyError)
     async def sqlalchemy_error_handler(request: Request, exc: SQLAlchemyError) -> JSONResponse:
-        logger.exception("database_error", path=request.url.path, exc_info=exc)
+        logger.error(
+            "database_error",
+            path=request.url.path,
+            error_type=type(exc).__name__,
+        )
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={
@@ -133,7 +134,11 @@ def register_exception_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(Exception)
     async def generic_error_handler(request: Request, exc: Exception) -> JSONResponse:
-        logger.exception("unhandled_error", path=request.url.path, exc_info=exc)
+        logger.error(
+            "unhandled_error",
+            path=request.url.path,
+            error_type=type(exc).__name__,
+        )
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={

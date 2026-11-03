@@ -25,8 +25,8 @@ router = APIRouter()
 async def list_security_scans(
     repository_id: uuid.UUID,
     session: AsyncSession = Depends(get_session),
-    limit: int = 50,
-    offset: int = 0,
+    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0),
 ):
     """List security scans for a repository."""
     # Verify repository exists
@@ -60,7 +60,7 @@ async def run_security_scan(
     """Trigger a security scan for a repository."""
     # Verify repository exists
     repo_result = await session.execute(
-        select(Repository).where(Repository.id == repository_id)
+        select(Repository).where(Repository.id == repository_id).with_for_update()
     )
     repository = repo_result.scalar_one_or_none()
 
@@ -105,11 +105,11 @@ async def list_security_findings(
     session: AsyncSession = Depends(get_session),
     severity: Optional[list[str]] = Query(None),
     category: Optional[list[str]] = Query(None),
-    file_path: Optional[str] = Query(None),
+    file_path: Optional[str] = Query(None, max_length=1024),
     finding_status: Optional[list[str]] = Query(None),
-    rule_id: Optional[str] = Query(None),
-    limit: int = 100,
-    offset: int = 0,
+    rule_id: Optional[str] = Query(None, max_length=128),
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
 ):
     """List security findings for a repository with filters."""
     # Verify repository exists

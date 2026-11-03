@@ -15,6 +15,12 @@ def test_settings_defaults_are_safe_for_local_optional_providers() -> None:
     assert settings.embedding_provider == "none"
     assert settings.embedding_dimensions == 384
     assert settings.cors_origins == ["http://localhost:5173"]
+    assert settings.max_upload_mb == 50
+    assert settings.max_archive_files == 10000
+    assert settings.max_uncompressed_mb == 300
+    assert settings.max_single_file_mb == 5
+    assert settings.max_archive_path_length == 1024
+    assert settings.max_archive_compression_ratio == 1000
 
 
 @pytest.mark.parametrize(
@@ -31,14 +37,19 @@ def test_cors_origins_support_json_comma_separated_and_list_values(raw, expected
 
 def test_settings_parse_environment_values_without_loading_dotenv(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://service:configured@db.example:5432/codebase_rag")
     monkeypatch.setenv("DATABASE_POOL_SIZE", "13")
     monkeypatch.setenv("CORS_ORIGINS_STR", "https://ui.example,https://admin.example")
+    monkeypatch.setenv("MAX_ARCHIVE_PATH_LENGTH", "512")
+    monkeypatch.setenv("MAX_ARCHIVE_COMPRESSION_RATIO", "250")
 
     settings = Settings(_env_file=None)
 
     assert settings.app_env == "production"
     assert settings.database_pool_size == 13
     assert settings.cors_origins == ["https://ui.example", "https://admin.example"]
+    assert settings.max_archive_path_length == 512
+    assert settings.max_archive_compression_ratio == 250
 
 
 @pytest.mark.parametrize(
@@ -46,6 +57,8 @@ def test_settings_parse_environment_values_without_loading_dotenv(monkeypatch: p
     [
         {"app_env": "preview"},
         {"llm_provider": "unsupported"},
+        {"max_archive_files": 0},
+        {"max_archive_compression_ratio": 0},
         {"embedding_provider": "remote_magic"},
         {"embedding_dimensions": "not-an-integer"},
     ],
@@ -53,6 +66,24 @@ def test_settings_parse_environment_values_without_loading_dotenv(monkeypatch: p
 def test_settings_reject_invalid_enum_and_numeric_values(values) -> None:
     with pytest.raises(ValidationError):
         Settings(_env_file=None, **values)
+
+
+@pytest.mark.parametrize(
+    "database_url",
+    [
+        "postgresql+psycopg://postgres:postgres@localhost:5432/codebase_rag",
+        "postgresql+psycopg://postgres:postgres@db:5432/codebase_rag",
+    ],
+)
+def test_production_settings_reject_development_database_defaults(
+    monkeypatch: pytest.MonkeyPatch, database_url: str
+) -> None:
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+
+    with pytest.raises(ValidationError, match="DATABASE_URL must not use the development default") as exc_info:
+        Settings(_env_file=None, app_env="production", database_url=database_url)
+
+    assert "postgresql+psycopg://" not in str(exc_info.value)
 
 
 def test_provider_factories_fall_back_to_noop_when_openai_compatible_provider_is_incomplete(

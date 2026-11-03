@@ -1,7 +1,7 @@
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -9,7 +9,15 @@ from sqlalchemy.orm import selectinload
 from app.core.config import get_settings
 from app.core.errors import NotFoundError, ValidationError
 from app.db.session import get_session
-from app.db.models import Repository, RepositoryFile, RepositoryStatus, RepositorySourceType
+from app.db.models import (
+    BackgroundJob,
+    JobStatus,
+    JobType,
+    Repository,
+    RepositoryFile,
+    RepositoryStatus,
+    RepositorySourceType,
+)
 from app.schemas import (
     RepositoryCreate,
     RepositoryRead,
@@ -31,8 +39,8 @@ settings = get_settings()
 @router.get("", response_model=RepositoryListResponse)
 async def list_repositories(
     session: AsyncSession = Depends(get_session),
-    limit: int = 50,
-    offset: int = 0,
+    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0),
 ):
     """List all repositories with pagination."""
     # Get total count
@@ -66,7 +74,7 @@ async def upload_repository(
 
     # Check file size
     max_size = settings.max_upload_mb * 1024 * 1024
-    content = await file.read()
+    content = await file.read(max_size + 1)
     if len(content) > max_size:
         raise ValidationError(f"File size exceeds maximum of {settings.max_upload_mb} MB")
 
@@ -92,16 +100,23 @@ async def upload_repository(
         repository.file_count = extract_result.file_count
         repository.detected_languages = extract_result.languages
         repository.status = RepositoryStatus.PENDING  # Will be updated to INDEXED after indexing
+        indexing_job = BackgroundJob(
+            repository_id=repository.id,
+            job_type=JobType.INDEXING,
+            status=JobStatus.QUEUED,
+        )
+        session.add(indexing_job)
         await session.commit()
 
         # Refresh the repository to load updated fields (like updated_at)
         await session.refresh(repository)
+        await session.refresh(indexing_job)
 
         # Trigger indexing job (async in background)
         # For now, run inline for simplicity - in production this would be a background job
         from app.workers.indexing_worker import run_indexing_job
         import asyncio
-        asyncio.create_task(run_indexing_job(str(repository.id)))
+        asyncio.create_task(run_indexing_job(str(repository.id), str(indexing_job.id)))
 
     except ArchiveValidationError as e:
         repository.status = RepositoryStatus.FAILED
@@ -110,11 +125,17 @@ async def upload_repository(
         raise ValidationError(str(e))
     except Exception as e:
         repository.status = RepositoryStatus.FAILED
-        repository.error_summary = f"Processing failed: {str(e)}"
+        repository.error_summary = "Repository ingestion failed due to an internal error."
         await session.commit()
+        from app.core.logging import get_logger
+        get_logger(__name__).error(
+            "repository_upload_failed",
+            repository_id=str(repository.id),
+            error_type=type(e).__name__,
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to process repository: {str(e)}",
+            detail="Failed to process repository due to an internal error.",
         )
 
     return RepositoryRead.model_validate(repository)
@@ -159,8 +180,8 @@ async def delete_repository(
 async def list_repository_files(
     repository_id: uuid.UUID,
     session: AsyncSession = Depends(get_session),
-    limit: int = 100,
-    offset: int = 0,
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
 ):
     """List files in a repository."""
     # Verify repository exists
@@ -229,15 +250,28 @@ async def trigger_indexing(
 ):
     """Trigger or retry indexing for a repository."""
     result = await session.execute(
-        select(Repository).where(Repository.id == repository_id)
+        select(Repository).where(Repository.id == repository_id).with_for_update()
     )
     repository = result.scalar_one_or_none()
 
     if not repository:
         raise NotFoundError("Repository", str(repository_id))
 
+    from app.db.models import BackgroundJob, JobStatus, JobType
+    running_job = await session.execute(
+        select(BackgroundJob.id).where(
+            BackgroundJob.repository_id == repository_id,
+            BackgroundJob.job_type == JobType.INDEXING,
+            BackgroundJob.status.in_([JobStatus.QUEUED, JobStatus.PROCESSING]),
+        ).limit(1)
+    )
+    if running_job.scalar_one_or_none():
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": "INDEXING_IN_PROGRESS", "message": "Indexing is already running for this repository", "details": {}},
+        )
+
     # Create indexing job
-    from app.db.models import BackgroundJob, JobType, JobStatus
     job = BackgroundJob(
         repository_id=repository_id,
         job_type=JobType.INDEXING,

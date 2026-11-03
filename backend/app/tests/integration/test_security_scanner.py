@@ -76,3 +76,44 @@ async def test_security_scanner_completes_empty_repository_without_inventing_fin
     assert scan.status == ScanStatus.COMPLETED
     assert scan.findings_count == 0
     assert await db_session.scalar(select(SecurityFinding.id).where(SecurityFinding.scan_id == scan.id)) is None
+
+
+@pytest.mark.asyncio
+async def test_security_scanner_reports_rule_failure_without_exposing_exception_details(
+    db_session, repository_factory, monkeypatch, tmp_path
+) -> None:
+    repository = repository_factory(status=RepositoryStatus.INDEXED, file_count=1)
+    scan = SecurityScan(repository_id=repository.id, status=ScanStatus.QUEUED)
+    file = RepositoryFile(
+        repository_id=repository.id,
+        relative_path="src/main.py",
+        language="python",
+        size_bytes=4,
+        content_hash=hashlib.sha256(b"pass").hexdigest(),
+        line_count=1,
+        indexing_status="completed",
+    )
+    db_session.add_all([repository, scan, file])
+    await db_session.commit()
+
+    storage = RepositoryStorage(str(tmp_path / "repositories"))
+    source_dir, _ = storage.create_repo_storage(repository.id)
+    (source_dir / "src").mkdir(parents=True)
+    (source_dir / "src" / "main.py").write_text("pass", encoding="utf-8")
+    monkeypatch.setattr("app.workers.security_worker.get_storage", lambda: storage)
+
+    class BrokenRule:
+        rule_id = "TEST_RULE"
+
+        def check(self, *_args):
+            raise RuntimeError("private filesystem path and token")
+
+    scanner = SecurityScanner()
+    scanner.rules = [BrokenRule()]
+    await scanner.scan(db_session, repository.id, scan.id)
+
+    await db_session.refresh(scan)
+    assert scan.status == ScanStatus.COMPLETED
+    assert scan.error_summary == "One or more security rules could not be completed."
+    assert "private" not in scan.error_summary
+    assert scan.findings_count == 0

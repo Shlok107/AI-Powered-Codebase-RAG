@@ -112,6 +112,14 @@ See `.env.example` for all available options. Key settings:
 | `EMBEDDING_DIMENSIONS` | Vector dimensions | `384` |
 | `MAX_UPLOAD_MB` | Max upload size in MB | `50` |
 
+### Upload limits and deployment boundary
+
+ZIP uploads are limited by `MAX_UPLOAD_MB` (50 MiB by default), `MAX_ARCHIVE_FILES` (10,000 entries), `MAX_UNCOMPRESSED_MB` (300 MiB of declared expansion), `MAX_SINGLE_FILE_MB` (5 MiB per indexed file), `MAX_ARCHIVE_PATH_LENGTH` (1,024 characters), and `MAX_ARCHIVE_COMPRESSION_RATIO` (1,000:1). The extractor also enforces per-file and aggregate limits while streaming actual decompressed bytes. Large supported source files are rejected rather than silently omitted. These settings can be set in the backend environment; `.env.example` lists the local defaults.
+
+Dependency vulnerability checks query the OSV database for exact versions from supported manifests and lock files (requirements, `pyproject.toml`, npm lock files, Poetry/uv/Cargo lock files, and `go.mod`). `MAX_DEPENDENCY_QUERIES` and `MAX_DEPENDENCY_ADVISORIES` cap per-scan work. Advisory responses are cached in process for six hours. An unavailable service, malformed manifest, or reached cap is reported as incomplete coverage on the scan; it does not convert an unknown result into a clean result. Version ranges in unlocked manifests are not resolved, and the scanner does not claim to report general package freshness.
+
+The Docker Compose stack binds its published ports to `127.0.0.1` and is for local development. The frontend is at `127.0.0.1:5173`, the backend API at `127.0.0.1:8001` (container port 8000), and PostgreSQL at `127.0.0.1:5433` (container port 5432). The alternate host ports avoid collisions with native services on the standard ports; containers use the internal `db:5432` address. The API currently has no authentication or per-user repository authorization; do not expose it directly to a network or public internet. A public deployment requires an identity provider, per-repository authorization, production database credentials managed by a secret store, TLS termination, and an edge/API gateway with request and operation rate limits. CORS restrictions do not replace authentication. The backend image defaults `APP_ENV` to `production`; Compose explicitly sets development mode for local use.
+
 ### LLM Provider Configuration
 
 For AI-powered Q&A, configure an OpenAI-compatible endpoint:
@@ -220,6 +228,8 @@ codebase-rag/
 - **Input Validation**: All inputs validated at API boundary
 - **SQL Safety**: Parameterized queries via SQLAlchemy
 - **Prompt Injection Protection**: Repository content treated as untrusted
+- **Local Exposure**: Compose ports bind to loopback; the API has no authentication or per-user authorization and is not suitable for direct public exposure
+- **Dependency Advisories**: Exact lockfile versions are checked against OSV when available; unavailable or capped checks are surfaced as incomplete coverage
 
 ## Testing
 
@@ -255,7 +265,7 @@ Note: This configuration is provided but not deployed. See `docs/aws-deployment.
 - Local embeddings require sentence-transformers dependencies
 - No Git URL connector (ZIP upload only)
 - No persistent chat history in MVP
-- Dependency vulnerability scanning requires external advisory API
+- Dependency advisory lookup requires OSV availability for current vulnerability intelligence; offline scans report incomplete coverage
 - Single embedding model per index (dimension validation enforced)
 
 ## License

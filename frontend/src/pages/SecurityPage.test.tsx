@@ -89,6 +89,15 @@ describe('security findings workspace', () => {
     expect(screen.getByText('No scans yet')).toBeInTheDocument()
   })
 
+  it('shows when dependency advisory coverage was incomplete', async () => {
+    vi.mocked(api.listScans).mockResolvedValue([
+      makeScan({ error_summary: 'Dependency advisory coverage is incomplete because OSV lookup was unavailable.' }),
+    ])
+    renderSecurity()
+
+    expect(await screen.findByRole('status')).toHaveTextContent('OSV lookup was unavailable')
+  })
+
   it('renders API errors with an actionable refresh control', async () => {
     vi.mocked(api.listFindings).mockRejectedValue({ message: 'Security service unavailable' })
     renderSecurity()

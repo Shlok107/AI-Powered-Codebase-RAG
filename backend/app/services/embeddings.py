@@ -180,7 +180,7 @@ class SentenceTransformersEmbeddingProvider(EmbeddingProvider):
                     "sentence-transformers not installed. Install with: pip install sentence-transformers"
                 )
             except Exception as e:
-                logger.error("sentence_transformer_load_failed", error=str(e))
+                logger.error("sentence_transformer_load_failed", error_type=type(e).__name__)
                 raise
 
     async def embed_texts(self, texts: list[str]) -> list[list[float]]:

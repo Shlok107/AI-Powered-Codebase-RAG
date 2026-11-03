@@ -55,7 +55,7 @@ class FileRead(BaseModel):
 
 
 class FileContentRequest(BaseModel):
-    path: str = Field(..., min_length=1)
+    path: str = Field(..., min_length=1, max_length=1024)
     start_line: Optional[int] = Field(None, ge=1)
     end_line: Optional[int] = Field(None, ge=1)
 

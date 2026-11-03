@@ -2,8 +2,9 @@ import os
 import json
 from functools import lru_cache
 from typing import Literal, Optional, Union, Annotated
-from pydantic import Field, field_validator, BeforeValidator
+from pydantic import Field, field_validator, BeforeValidator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from sqlalchemy.engine import make_url
 
 def parse_cors_origins(v: Union[str, list[str]]) -> list[str]:
     if isinstance(v, str):
@@ -26,6 +27,7 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
+        hide_input_in_errors=True,
     )
 
     # Application
@@ -48,10 +50,27 @@ class Settings(BaseSettings):
         return parse_cors_origins(self.cors_origins_str)
 
     # Upload limits
-    max_upload_mb: int = 50
-    max_archive_files: int = 10000
-    max_uncompressed_mb: int = 300
-    max_single_file_mb: int = 5
+    max_upload_mb: int = Field(default=50, ge=1)
+    max_archive_files: int = Field(default=10000, ge=1)
+    max_uncompressed_mb: int = Field(default=300, ge=1)
+    max_single_file_mb: int = Field(default=5, ge=1)
+    max_archive_path_length: int = Field(default=1024, ge=1)
+    max_archive_compression_ratio: int = Field(default=1000, ge=1)
+    max_dependency_queries: int = Field(default=1000, ge=1)
+    max_dependency_advisories: int = Field(default=100, ge=1)
+    osv_api_url: str = "https://api.osv.dev/v1/querybatch"
+    osv_timeout_seconds: int = Field(default=5, ge=1, le=60)
+
+    @model_validator(mode="after")
+    def reject_default_database_url_in_production(self):
+        if self.app_env == "production":
+            database_url = make_url(self.database_url)
+            if (
+                self.database_url == "postgresql+psycopg://postgres:postgres@localhost:5432/codebase_rag"
+                or (database_url.username == "postgres" and database_url.password == "postgres")
+            ):
+                raise ValueError("DATABASE_URL must not use the development default when APP_ENV=production")
+        return self
 
     # Chunking
     chunk_size: int = 1200

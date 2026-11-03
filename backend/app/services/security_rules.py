@@ -69,6 +69,9 @@ class SecurityRule(ABC):
         explanation: str = None,
         remediation: str = None,
         references: list[str] = None,
+        finding_title: str = None,
+        finding_severity: str = None,
+        finding_confidence: str = None,
     ) -> Finding:
         """Create a finding with standard fields."""
         # Redact sensitive evidence
@@ -76,10 +79,10 @@ class SecurityRule(ABC):
 
         return Finding(
             rule_id=self.rule_id,
-            title=self.title,
+            title=finding_title or self.title,
             category=self.category,
-            severity=self.severity,
-            confidence=self.confidence,
+            severity=finding_severity or self.severity,
+            confidence=finding_confidence or self.confidence,
             file_path=file_path,
             start_line=start_line,
             end_line=end_line,

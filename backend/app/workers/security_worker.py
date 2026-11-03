@@ -61,6 +61,8 @@ class SecurityScanner:
             storage = get_storage()
             total_findings = 0
             severity_counts = {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0}
+            dependency_coverage_warnings: set[str] = set()
+            scan_warnings: set[str] = set()
 
             for repo_file in files:
                 try:
@@ -74,7 +76,20 @@ class SecurityScanner:
                     # Run all rules
                     for rule in self.rules:
                         try:
-                            rule_findings = rule.check(repo_file.relative_path, content, language)
+                            if rule.rule_id == "DEP_VULNERABLE" and hasattr(rule, "check_with_status"):
+                                rule_findings, incomplete, truncated = await rule.check_with_status(
+                                    repo_file.relative_path, content
+                                )
+                                if incomplete:
+                                    dependency_coverage_warnings.add(
+                                        "Dependency advisory coverage is incomplete because OSV lookup or manifest parsing was unavailable."
+                                    )
+                                if truncated:
+                                    dependency_coverage_warnings.add(
+                                        "Dependency advisory coverage was capped by the configured package query limit."
+                                    )
+                            else:
+                                rule_findings = rule.check(repo_file.relative_path, content, language)
                             for finding in rule_findings:
                                 # Create content hash for deduplication
                                 content_hash = self._compute_finding_hash(finding)
@@ -125,16 +140,18 @@ class SecurityScanner:
                                 "rule_check_failed",
                                 rule_id=rule.rule_id,
                                 file=repo_file.relative_path,
-                                error=str(e),
+                                error_type=type(e).__name__,
                             )
+                            scan_warnings.add("One or more security rules could not be completed.")
 
                 except Exception as e:
                     logger.error(
                         "file_scan_failed",
                         repository_id=str(repository_id),
                         file=repo_file.relative_path,
-                        error=str(e),
+                        error_type=type(e).__name__,
                     )
+                    scan_warnings.add("One or more repository files could not be scanned.")
 
             # Update scan summary
             scan.findings_count = total_findings
@@ -143,6 +160,7 @@ class SecurityScanner:
             scan.medium_count = severity_counts["medium"]
             scan.low_count = severity_counts["low"]
             scan.info_count = severity_counts["info"]
+            scan.error_summary = " ".join(sorted(dependency_coverage_warnings | scan_warnings)) or None
             scan.status = ScanStatus.COMPLETED
             scan.completed_at = datetime.utcnow()
 
@@ -156,10 +174,15 @@ class SecurityScanner:
 
         except Exception as e:
             scan.status = ScanStatus.FAILED
-            scan.error_summary = str(e)
+            scan.error_summary = "Security scan failed due to an internal error."
             scan.completed_at = datetime.utcnow()
             await session.commit()
-            logger.error("scan_failed", repository_id=str(repository_id), scan_id=str(scan_id), error=str(e))
+            logger.error(
+                "scan_failed",
+                repository_id=str(repository_id),
+                scan_id=str(scan_id),
+                error_type=type(e).__name__,
+            )
 
     def _compute_finding_hash(self, finding: RuleFinding) -> str:
         """Compute hash for finding deduplication."""

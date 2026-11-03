@@ -2,7 +2,7 @@ import hashlib
 import os
 import shutil
 import uuid
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Optional
 
 from app.core.config import get_settings
@@ -58,7 +58,25 @@ class RepositoryStorage:
 
     def get_file_path(self, repository_id: uuid.UUID, relative_path: str) -> Path:
         """Get the absolute path for a repository file."""
-        return self.get_repo_source_path(repository_id) / relative_path
+        normalized = relative_path.replace("\\", "/")
+        posix_path = PurePosixPath(normalized)
+        windows_path = PureWindowsPath(relative_path)
+        if (
+            not relative_path
+            or posix_path.is_absolute()
+            or windows_path.is_absolute()
+            or bool(windows_path.drive)
+            or ".." in posix_path.parts
+        ):
+            raise ValueError("Repository file path must be relative to its source directory")
+
+        source_root = self.get_repo_source_path(repository_id).resolve()
+        file_path = (source_root / Path(*posix_path.parts)).resolve()
+        try:
+            file_path.relative_to(source_root)
+        except ValueError as exc:
+            raise ValueError("Repository file path escapes its source directory") from exc
+        return file_path
 
     def read_file(self, repository_id: uuid.UUID, relative_path: str) -> Optional[str]:
         """Read a file from repository storage."""
