@@ -1,22 +1,21 @@
 import { useEffect, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { api } from '../api/client'
 import { Repository } from '../types'
-import { Card, CardHeader, CardTitle, CardContent, Badge, Button } from '../components'
-import { formatRelativeTime, getLanguageLabel } from '../utils/format'
-import { cn } from '../utils/cn'
+import { Badge, Button, Input } from '../components'
+import { getErrorMessage, getLanguageLabel } from '../utils/format'
 import {
   MessageSquare,
-  ChevronLeft,
   Search,
   Loader2,
   FileCode,
+  ArrowUpRight,
 } from 'lucide-react'
 
 export function ChatSelectorPage() {
-  const navigate = useNavigate()
   const [repositories, setRepositories] = useState<Repository[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
 
   useEffect(() => {
@@ -26,11 +25,12 @@ export function ChatSelectorPage() {
   async function fetchRepositories() {
     try {
       setLoading(true)
+      setError('')
       const res = await api.listRepositories({ limit: 100 })
       // Only show indexed repositories for chat
       setRepositories(res.repositories.filter(r => r.status === 'indexed'))
     } catch (err) {
-      console.error(err)
+      setError(getErrorMessage(err, 'Could not load repositories. Check the API connection and retry.'))
     } finally {
       setLoading(false)
     }
@@ -52,101 +52,54 @@ export function ChatSelectorPage() {
   }
 
   return (
-    <div className="space-y-6 animate-in">
+    <div className="space-y-5 animate-in">
       <div className="flex items-center justify-between flex-wrap gap-4">
-        <div className="flex items-center gap-4">
-          <Link to="/repositories" className="btn-ghost">
-            <ChevronLeft className="h-4 w-4" />
-          </Link>
-          <div>
-            <h1 className="text-2xl font-bold text-text-primary">Ask Codebase</h1>
-            <p className="text-text-secondary mt-1">Select a repository to start asking questions</p>
-          </div>
-        </div>
+        <div><p className="text-[10px] uppercase tracking-[.15em] text-text-muted mb-1">Investigation / Repository</p><h1 className="text-xl font-semibold tracking-tight text-text-primary">Ask Codebase</h1><p className="text-sm text-text-secondary mt-1">Choose an indexed repository to investigate.</p></div>
       </div>
 
       {/* Search */}
-      <Card padding="md">
-        <CardContent>
-          <div className="relative max-w-md">
+      <div className="relative max-w-2xl border-y border-surface-border py-2.5">
+          <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted" />
-            <input
-              type="text"
-              placeholder="Search repositories..."
+            <Input
+              aria-label="Search indexed repositories"
+              placeholder="Filter indexed repositories…"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 px-3 py-2 rounded-lg bg-background border border-surface-border text-text-primary placeholder-text-muted focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent"
+              className="h-9 pl-9 text-sm"
             />
           </div>
-        </CardContent>
-      </Card>
+      </div>
 
       {/* Repository Grid */}
-      <Card>
-        <CardContent className="p-0">
-          {filteredRepos.length === 0 ? (
-            <div className="text-center py-16">
-              <FileCode className="h-12 w-12 text-text-muted mx-auto mb-4" />
-              <h3 className="text-lg font-medium text-text-primary mb-2">
+      <section className="border-b border-surface-border" aria-label="Indexed repositories">
+          {error ? <div className="py-8 text-center" role="alert"><p className="text-sm text-red-300">{error}</p><Button size="sm" variant="secondary" className="mt-3" onClick={fetchRepositories}>Retry</Button></div> : null}
+          {!error && (filteredRepos.length === 0 ? (
+            <div className="text-center py-12">
+              <FileCode className="h-7 w-7 text-text-muted mx-auto mb-3" />
+              <h3 className="text-sm font-semibold text-text-primary mb-1">
                 {searchQuery ? 'No matching repositories' : 'No indexed repositories'}
               </h3>
-              <p className="text-text-secondary mb-6">
+              <p className="text-xs text-text-secondary mb-4">
                 {searchQuery
                   ? 'Try adjusting your search'
                   : 'Upload and index a repository first to start asking questions'}
               </p>
               {!searchQuery && (
-                <Link to="/repositories" className="btn-primary">
+                <Link to="/repositories" className="btn-secondary text-xs">
                   <MessageSquare className="h-4 w-4" />
-                  Go to Repositories
+                  Add or index a repository <ArrowUpRight className="h-3.5 w-3.5" />
                 </Link>
               )}
             </div>
           ) : (
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {filteredRepos.map((repo) => (
-                <Link
-                  key={repo.id}
-                  to={`/chat/${repo.id}`}
-                  className="p-4 bg-surface-border/30 rounded-xl hover:bg-surface-border/50 hover:border-accent/30 border border-transparent transition-all group"
-                >
-                  <div className="flex items-center gap-3 mb-3">
-                    <div className="p-2 bg-accent/10 rounded-lg">
-                      <MessageSquare className="h-5 w-5 text-accent" />
-                    </div>
-                    <div className="min-w-0">
-                      <p className="font-medium text-text-primary truncate">{repo.display_name}</p>
-                      <div className="flex items-center gap-2 mt-1 text-xs text-text-muted flex-wrap">
-                        <Badge variant={repo.status as any} className="gap-1">
-                          {repo.status.charAt(0).toUpperCase() + repo.status.slice(1)}
-                        </Badge>
-                        {repo.detected_languages.length > 0 && (
-                          <>
-                            {repo.detected_languages.slice(0, 3).map((lang) => (
-                              <Badge key={lang} variant="default" className="text-xs">
-                                {getLanguageLabel(lang)}
-                              </Badge>
-                            ))}
-                            {repo.detected_languages.length > 3 && (
-                              <Badge variant="default" className="text-xs">
-                                +{repo.detected_languages.length - 3} more
-                              </Badge>
-                            )}
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex items-center justify-between text-xs text-text-muted">
-                    <span>{repo.file_count} files</span>
-                    <span>{repo.chunk_count} chunks</span>
-                  </div>
-                </Link>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+            <div className="divide-y divide-surface-border">{filteredRepos.map((repo) => <Link key={repo.id} to={`/chat/${repo.id}`} className="flex items-center gap-3 px-3 py-2.5 hover:bg-surface-hover/40 focus-visible:bg-surface-hover/40">
+              <span className="h-7 w-7 shrink-0 rounded bg-background-tertiary flex items-center justify-center"><MessageSquare className="h-3.5 w-3.5 text-accent" /></span>
+              <span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium text-text-primary">{repo.display_name}</span><span className="mt-0.5 flex flex-wrap gap-x-2 text-[10px] text-text-muted">{repo.detected_languages.slice(0, 3).map((language) => <span key={language}>{getLanguageLabel(language)}</span>)}</span></span>
+              <span className="hidden text-right text-[11px] text-text-muted sm:block">{repo.file_count.toLocaleString()} files<br />{repo.chunk_count.toLocaleString()} chunks</span><Badge variant="indexed">Indexed</Badge><ArrowUpRight className="h-3.5 w-3.5 text-text-muted" />
+            </Link>)}</div>
+          ))}
+      </section>
     </div>
   )
 }

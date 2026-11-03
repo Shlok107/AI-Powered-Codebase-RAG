@@ -1,74 +1,39 @@
 import { Outlet, useLocation } from 'react-router-dom'
 import { Sidebar } from '../components/Sidebar'
-import { cn } from '../utils/cn'
+import { NetworkBackground } from '../components/NetworkBackground'
+import { Menu, ChevronRight } from 'lucide-react'
 import { useState } from 'react'
 
 export function AppLayout() {
   const location = useLocation()
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  const [mobileOpen, setMobileOpen] = useState(false)
+  const section = getPageTitle(location.pathname)
 
-  return (
-    <div className="min-h-screen bg-background flex">
-      <Sidebar onToggle={() => setSidebarCollapsed(!sidebarCollapsed)} />
-      <div
-        className={cn(
-          'flex-1 flex flex-col min-w-0 transition-all duration-300',
-          sidebarCollapsed ? 'lg:ml-16' : 'lg:ml-64'
-        )}
-      >
-        <header className="sticky top-0 z-30 h-16 bg-background/80 backdrop-blur-md border-b border-surface-border">
-          <div className="h-full px-6 flex items-center justify-between">
-            <div>
-              <h1 className="text-xl font-semibold text-text-primary">
-                {getPageTitle(location.pathname)}
-              </h1>
-              <p className="text-sm text-text-secondary mt-0.5">
-                {getPageDescription(location.pathname)}
-              </p>
-            </div>
-            <div className="flex items-center gap-4">
-              {/* Repository selector would go here */}
-            </div>
+  return <div className="app-shell flex h-[100dvh] w-full min-w-0 overflow-hidden bg-background">
+    <Sidebar mobileOpen={mobileOpen} onMobileClose={() => setMobileOpen(false)} />
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+      <header className="relative z-30 h-12 shrink-0 border-b border-surface-border bg-background-secondary/95">
+        <div className="h-full px-4 sm:px-6 flex items-center gap-3">
+          <button onClick={() => setMobileOpen(true)} className="lg:hidden inline-flex p-2 -ml-2 rounded-md text-text-secondary hover:text-text-primary hover:bg-surface" aria-label="Open navigation"><Menu className="h-5 w-5" /></button>
+          <div className="flex items-center gap-2 text-sm min-w-0">
+            <span className="hidden sm:inline text-text-muted">Workspace</span><ChevronRight className="hidden sm:block h-3 w-3 text-text-muted" />
+            <span className="font-medium text-text-primary truncate">{section}</span>
           </div>
-        </header>
-
-        <main className="flex-1 p-6 overflow-auto">
-          <Outlet />
-        </main>
+          <span className="ml-auto hidden sm:inline text-[11px] text-text-muted font-mono">CODEBASE RAG</span>
+        </div>
+      </header>
+      <div className="relative isolate flex min-h-0 min-w-0 flex-1 bg-[#050505]">
+        <NetworkBackground />
+        <main className="relative z-10 min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto bg-transparent p-3 sm:p-4 lg:p-5"><div className="w-full min-w-0"><Outlet /></div></main>
       </div>
     </div>
-  )
+  </div>
 }
 
 function getPageTitle(pathname: string): string {
-  const titles: Record<string, string> = {
-    '/': 'Overview',
-    '/repositories': 'Repositories',
-    '/chat': 'Ask Codebase',
-    '/security': 'Security Findings',
-    '/graph': 'Dependency Graph',
-    '/settings': 'Settings',
-  }
-
-  // Check for dynamic routes
-  if (pathname.startsWith('/repositories/')) return 'Repository Details'
-  if (pathname.startsWith('/chat/')) return 'Conversation'
-
+  if (pathname.startsWith('/repositories/')) return 'Repository detail'
+  if (pathname.startsWith('/chat/')) return 'Ask Codebase'
+  if (pathname.startsWith('/security/')) return 'Security analysis'
+  const titles: Record<string, string> = { '/': 'Overview', '/repositories': 'Repositories', '/chat': 'Ask Codebase', '/security': 'Security analysis', '/graph': 'Dependency graph', '/settings': 'Settings' }
   return titles[pathname] || 'Codebase RAG'
-}
-
-function getPageDescription(pathname: string): string {
-  const descriptions: Record<string, string> = {
-    '/': 'Repository status, indexing progress, and recent activity',
-    '/repositories': 'Manage and browse your code repositories',
-    '/chat': 'Ask questions about your codebase with grounded answers',
-    '/security': 'View and triage security findings across repositories',
-    '/graph': 'Explore code dependencies and relationships',
-    '/settings': 'Configure providers, integrations, and preferences',
-  }
-
-  if (pathname.startsWith('/repositories/')) return 'View repository details, files, and indexing status'
-  if (pathname.startsWith('/chat/')) return 'Continue your conversation about this repository'
-
-  return descriptions[pathname] || ''
 }

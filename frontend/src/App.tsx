@@ -1,4 +1,4 @@
-import { Routes, Route, Navigate } from 'react-router-dom'
+import { Routes, Route } from 'react-router-dom'
 import { AppLayout } from './layouts/AppLayout'
 import { OverviewPage } from './pages/OverviewPage'
 import { RepositoriesPage } from './pages/RepositoriesPage'
@@ -22,9 +22,6 @@ function AppRoutes() {
         <Route path="security/:repositoryId" element={<SecurityPage />} />
         <Route path="graph" element={<GraphPage />} />
         <Route path="settings" element={<SettingsPage />} />
-        {/* Redirect legacy /chat and /security without params to selector pages */}
-        <Route path="chat" element={<Navigate to="/chat" replace />} />
-        <Route path="security" element={<Navigate to="/security" replace />} />
       </Route>
     </Routes>
   )

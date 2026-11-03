@@ -8,38 +8,52 @@ export default {
   theme: {
     extend: {
       colors: {
-        // Slate-based dark theme
         background: {
-          DEFAULT: '#0f1115',
-          secondary: '#16191f',
-          tertiary: '#1e2129',
+          DEFAULT: '#11132F',
+          secondary: '#171A3A',
+          tertiary: '#202143',
         },
         surface: {
-          DEFAULT: '#1e2129',
-          hover: '#262a33',
-          border: '#2d313a',
+          DEFAULT: '#202143',
+          hover: '#292B55',
+          border: '#383A67',
         },
         text: {
-          primary: '#e8eaed',
-          secondary: '#9aa4b2',
-          muted: '#6b7280',
+          primary: '#F3F1FF',
+          secondary: '#B9B8D8',
+          muted: '#8989B4',
         },
         accent: {
-          DEFAULT: '#3b82f6', // blue-500
-          hover: '#2563eb', // blue-600
-          light: '#60a5fa', // blue-400
+          DEFAULT: '#8B5CF6',
+          hover: '#9878FF',
+          light: '#B9A6FF',
+        },
+        sidebar: {
+          DEFAULT: '#292950',
+          secondary: '#343365',
+          active: '#6040C7',
+          accent: '#A58AFF',
+        },
+        workspace: {
+          DEFAULT: '#7775AD',
+        },
+        status: {
+          cyan: '#48C8DD',
+          success: '#4FCB91',
+          warning: '#E9C957',
+          danger: '#E6787D',
         },
         severity: {
-          critical: '#ef4444', // red-500
-          high: '#f97316', // orange-500
-          medium: '#eab308', // yellow-500
-          low: '#22c55e', // green-500
-          info: '#3b82f6', // blue-500
+          critical: '#E6787D',
+          high: '#D85F73',
+          medium: '#E9C957',
+          low: '#48C8DD',
+          info: '#8989B4',
         },
       },
       fontFamily: {
-        sans: ['Inter', 'system-ui', 'sans-serif'],
-        mono: ['JetBrains Mono', 'Fira Code', 'monospace'],
+        sans: ['Inter', 'Segoe UI', 'system-ui', 'sans-serif'],
+        mono: ['JetBrains Mono', 'Cascadia Code', 'Consolas', 'monospace'],
       },
       spacing: {
         '18': '4.5rem',

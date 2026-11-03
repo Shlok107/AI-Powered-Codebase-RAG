@@ -4,62 +4,91 @@
 
 @layer base {
   :root {
-    --color-background: #0f1115;
-    --color-background-secondary: #16191f;
-    --color-background-tertiary: #1e2129;
-    --color-surface: #1e2129;
-    --color-surface-hover: #262a33;
-    --color-surface-border: #2d313a;
-    --color-text-primary: #e8eaed;
-    --color-text-secondary: #9aa4b2;
-    --color-text-muted: #6b7280;
-    --color-accent: #3b82f6;
-    --color-accent-hover: #2563eb;
-    --color-accent-light: #60a5fa;
+    color-scheme: dark;
+    --color-background: #11132F;
+    --color-background-secondary: #171A3A;
+    --color-background-tertiary: #202143;
+    --color-surface: #202143;
+    --color-surface-hover: #292B55;
+    --color-surface-border: #383A67;
+    --color-text-primary: #F3F1FF;
+    --color-text-secondary: #B9B8D8;
+    --color-text-muted: #8989B4;
+    --color-accent: #8B5CF6;
+    --color-accent-hover: #9878FF;
+    --color-accent-light: #B9A6FF;
   }
 
   * {
     border-color: var(--color-surface-border);
   }
 
+  html {
+    width: 100%;
+    height: 100%;
+    scroll-behavior: smooth;
+    overflow: hidden;
+    background: var(--color-background);
+  }
+
   body {
     @apply bg-background text-text-primary font-sans antialiased;
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
   }
 
-  html {
-    scroll-behavior: smooth;
+  #root {
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  button,
+  input,
+  select,
+  textarea {
+    font: inherit;
   }
 
   ::selection {
-    @apply bg-accent/30 text-text-primary;
+    @apply bg-accent/25 text-text-primary;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
   }
 
   ::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
+    width: 9px;
+    height: 9px;
   }
 
   ::-webkit-scrollbar-track {
-    @apply bg-background;
+    background: var(--color-background);
   }
 
   ::-webkit-scrollbar-thumb {
     @apply bg-surface-border rounded-full;
+    border: 2px solid var(--color-background);
   }
 
   ::-webkit-scrollbar-thumb:hover {
-    @apply bg-text-muted;
+    background: var(--color-text-muted);
   }
 }
 
 @layer components {
   .btn {
-    @apply inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg font-medium text-sm transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:opacity-50 disabled:cursor-not-allowed;
+    @apply inline-flex items-center justify-center gap-2 px-3 py-2 rounded-md font-medium text-sm transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:opacity-50 disabled:cursor-not-allowed;
   }
 
   .btn-primary {
-    @apply btn bg-accent text-white hover:bg-accent-hover;
+    @apply btn bg-accent text-background hover:bg-accent-hover;
   }
 
   .btn-secondary {
@@ -71,45 +100,50 @@
   }
 
   .btn-danger {
-    @apply btn bg-red-600/20 text-red-400 hover:bg-red-600/30 border border-red-600/30;
+    @apply btn bg-red-500/10 text-red-300 hover:bg-red-500/15 border border-red-500/25;
   }
 
   .input {
-    @apply w-full px-3 py-2 rounded-lg bg-background border border-surface-border text-text-primary placeholder-text-muted focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent transition-all duration-150;
+    @apply w-full px-3 py-2 rounded-md bg-background border border-surface-border text-text-primary placeholder-text-muted focus:outline-none focus:ring-2 focus:ring-accent/70 focus:border-accent/50 transition-colors duration-150;
   }
 
   .label {
-    @apply block text-sm font-medium text-text-secondary mb-1;
+    @apply block text-xs font-medium text-text-secondary mb-1.5;
   }
 
   .card {
-    @apply bg-surface border border-surface-border rounded-xl p-6 transition-all duration-150;
+    @apply bg-surface border border-surface-border rounded-md;
   }
 
   .card-hover {
-    @apply card hover:border-accent/30 hover:shadow-lg hover:shadow-accent/5;
+    @apply card transition-colors duration-150 hover:border-accent/30 hover:bg-surface-hover/50;
   }
 
   .badge {
-    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
+    @apply inline-flex items-center gap-1 px-2 py-0.5 rounded font-medium text-[11px] leading-4;
   }
 
-  .badge-critical { @apply badge bg-red-500/20 text-red-400; }
-  .badge-high { @apply badge bg-orange-500/20 text-orange-400; }
-  .badge-medium { @apply badge bg-yellow-500/20 text-yellow-400; }
-  .badge-low { @apply badge bg-green-500/20 text-green-400; }
-  .badge-info { @apply badge bg-blue-500/20 text-blue-400; }
+  .badge-critical { @apply badge bg-status-danger/15 text-status-danger; }
+  .badge-high { @apply badge bg-status-danger/15 text-status-danger; }
+  .badge-medium { @apply badge bg-status-warning/15 text-status-warning; }
+  .badge-low { @apply badge bg-status-cyan/15 text-status-cyan; }
+  .badge-info { @apply badge bg-surface-hover text-text-secondary; }
 
   .sidebar-link {
-    @apply flex items-center gap-3 px-3 py-2.5 rounded-lg text-text-secondary hover:text-text-primary hover:bg-surface transition-colors duration-150 font-medium;
+    @apply relative flex items-center gap-2.5 min-h-9 px-2.5 rounded-md text-[13px] font-medium text-text-secondary hover:text-text-primary hover:bg-surface-hover/70 transition-colors duration-150;
   }
 
   .sidebar-link-active {
-    @apply sidebar-link bg-accent/10 text-accent border-l-2 border-accent;
+    @apply sidebar-link bg-sidebar-active text-white hover:bg-sidebar-active hover:text-white shadow-sm;
+  }
+
+  .sidebar-link-active::before {
+    content: "";
+    @apply absolute left-0 top-2 bottom-2 w-0.5 rounded-r bg-sidebar-accent;
   }
 
   .table-container {
-    @apply overflow-x-auto rounded-lg border border-surface-border;
+    @apply overflow-x-auto border-y border-surface-border;
   }
 
   .table {
@@ -117,11 +151,11 @@
   }
 
   .table th {
-    @apply px-4 py-3 text-text-muted font-medium uppercase tracking-wider bg-background border-b border-surface-border;
+    @apply px-3 py-2.5 text-[10px] text-text-muted font-semibold uppercase tracking-[.12em] bg-background-secondary/70 border-b border-surface-border whitespace-nowrap;
   }
 
   .table td {
-    @apply px-4 py-3 border-b border-surface-border/50;
+    @apply px-3 py-2.5 border-b border-surface-border/70 align-middle;
   }
 
   .table tbody tr {
@@ -129,8 +163,9 @@
   }
 
   .code-block {
-    @apply bg-background border border-surface-border rounded-lg p-4 font-mono text-sm overflow-x-auto text-text-secondary;
+    @apply bg-background border border-surface-border rounded-md p-3 font-mono text-xs leading-5 overflow-x-auto text-text-secondary;
   }
+
 }
 
 @layer utilities {
@@ -139,6 +174,20 @@
   }
 
   .animate-in {
-    animation: fadeIn 0.2s ease-out;
+    animation: fadeIn 140ms ease-out;
+  }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
   }
 }

@@ -9,6 +9,15 @@ export function formatRelativeTime(dateString: string): string {
   }
 }
 
+export function getErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message) return error.message
+  if (typeof error === 'object' && error !== null && 'message' in error) {
+    const message = (error as { message?: unknown }).message
+    if (typeof message === 'string' && message.trim()) return message
+  }
+  return fallback
+}
+
 export function formatDateTime(dateString: string): string {
   try {
     const date = new Date(dateString)
@@ -28,22 +37,22 @@ export function formatFileSize(bytes: number): string {
 
 export function getSeverityColor(severity: string): string {
   switch (severity) {
-    case 'critical': return 'text-red-400 bg-red-500/20'
-    case 'high': return 'text-orange-400 bg-orange-500/20'
-    case 'medium': return 'text-yellow-400 bg-yellow-500/20'
-    case 'low': return 'text-green-400 bg-green-500/20'
-    case 'info': return 'text-blue-400 bg-blue-500/20'
-    default: return 'text-gray-400 bg-gray-500/20'
+    case 'critical': return 'text-status-danger bg-status-danger/15'
+    case 'high': return 'text-status-danger bg-status-danger/15'
+    case 'medium': return 'text-status-warning bg-status-warning/15'
+    case 'low': return 'text-status-cyan bg-status-cyan/15'
+    case 'info': return 'text-text-secondary bg-surface-hover'
+    default: return 'text-text-muted bg-surface-hover'
   }
 }
 
 export function getStatusColor(status: string): string {
   switch (status) {
-    case 'completed': return 'text-green-400 bg-green-500/20'
-    case 'processing': return 'text-blue-400 bg-blue-500/20'
-    case 'queued': return 'text-yellow-400 bg-yellow-500/20'
-    case 'failed': return 'text-red-400 bg-red-500/20'
-    case 'indexed': return 'text-green-400 bg-green-500/20'
+    case 'completed': return 'text-status-success bg-status-success/15'
+    case 'processing': return 'text-status-cyan bg-status-cyan/15'
+    case 'queued': return 'text-status-warning bg-status-warning/15'
+    case 'failed': return 'text-status-danger bg-status-danger/15'
+    case 'indexed': return 'text-status-success bg-status-success/15'
     case 'pending': return 'text-gray-400 bg-gray-500/20'
     default: return 'text-gray-400 bg-gray-500/20'
   }

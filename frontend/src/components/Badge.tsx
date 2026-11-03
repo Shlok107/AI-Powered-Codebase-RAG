@@ -2,21 +2,28 @@ import { HTMLAttributes, forwardRef } from 'react'
 import { cn } from '../utils/cn'
 
 interface BadgeProps extends HTMLAttributes<HTMLSpanElement> {
-  variant?: 'default' | 'critical' | 'high' | 'medium' | 'low' | 'info' | 'success' | 'warning'
+  variant?: 'default' | 'critical' | 'high' | 'medium' | 'low' | 'info' | 'success' | 'warning' | 'pending' | 'processing' | 'indexed' | 'failed' | 'open' | 'dismissed' | 'resolved'
   size?: 'sm' | 'md'
 }
 
 export const Badge = forwardRef<HTMLSpanElement, BadgeProps>(
   ({ className, variant = 'default', size = 'md', children, ...props }, ref) => {
     const variants = {
-      default: 'bg-surface-border text-text-secondary',
-      critical: 'bg-red-500/20 text-red-400 border border-red-500/30',
-      high: 'bg-orange-500/20 text-orange-400 border border-orange-500/30',
-      medium: 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30',
-      low: 'bg-green-500/20 text-green-400 border border-green-500/30',
-      info: 'bg-blue-500/20 text-blue-400 border border-blue-500/30',
-      success: 'bg-green-500/20 text-green-400 border border-green-500/30',
-      warning: 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30',
+      default: 'bg-surface-hover text-text-secondary',
+      critical: 'bg-status-danger/15 text-status-danger',
+      high: 'bg-status-danger/15 text-status-danger',
+      medium: 'bg-status-warning/15 text-status-warning',
+      low: 'bg-status-cyan/15 text-status-cyan',
+      info: 'bg-surface-hover text-text-secondary',
+      success: 'bg-status-success/15 text-status-success',
+      warning: 'bg-status-warning/15 text-status-warning',
+      pending: 'bg-surface-hover text-text-secondary',
+      processing: 'bg-status-cyan/15 text-status-cyan',
+      indexed: 'bg-status-success/15 text-status-success',
+      failed: 'bg-status-danger/15 text-status-danger',
+      open: 'bg-status-warning/15 text-status-warning',
+      dismissed: 'bg-surface-hover text-text-muted',
+      resolved: 'bg-status-success/15 text-status-success',
     }
 
     const sizes = {
@@ -28,7 +35,7 @@ export const Badge = forwardRef<HTMLSpanElement, BadgeProps>(
       <span
         ref={ref}
         className={cn(
-          'inline-flex items-center font-medium rounded-full',
+          'inline-flex items-center font-medium rounded',
           variants[variant],
           sizes[size],
           className

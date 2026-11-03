@@ -1,4 +1,4 @@
-import { Fragment, ReactNode } from 'react'
+import { Fragment, ReactNode, useEffect } from 'react'
 import { X } from 'lucide-react'
 import { cn } from '../utils/cn'
 import { Button } from './Button'
@@ -22,6 +22,15 @@ export function Modal({
   size = 'md',
   showCloseButton = true,
 }: ModalProps) {
+  useEffect(() => {
+    if (!isOpen) return
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [isOpen, onClose])
+
   if (!isOpen) return null
 
   const sizes = {

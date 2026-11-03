@@ -2,8 +2,8 @@ import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { api } from '../api/client'
 import { Repository, SecurityFinding, SecurityScan } from '../types'
-import { Card, CardHeader, CardTitle, CardContent, Badge, Button, Select, Modal, Input } from '../components'
-import { formatRelativeTime, getSeverityColor } from '../utils/format'
+import { Badge, Button, Select, Modal, Input } from '../components'
+import { formatRelativeTime, getErrorMessage, getSeverityColor } from '../utils/format'
 import { cn } from '../utils/cn'
 import {
   Shield,
@@ -16,7 +16,6 @@ import {
   Play,
   Loader2,
   ChevronLeft,
-  Eye,
 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
@@ -30,8 +29,10 @@ export function SecurityPage() {
   const [repository, setRepository] = useState<Repository | null>(null)
   const [scans, setScans] = useState<SecurityScan[]>([])
   const [findings, setFindings] = useState<SecurityFinding[]>([])
+  const [findingsTotal, setFindingsTotal] = useState(0)
   const [loading, setLoading] = useState(true)
   const [scanning, setScanning] = useState(false)
+  const [requestError, setRequestError] = useState('')
   const [selectedFinding, setSelectedFinding] = useState<SecurityFinding | null>(null)
   const [detailDrawerOpen, setDetailDrawerOpen] = useState(false)
 
@@ -50,6 +51,7 @@ export function SecurityPage() {
   async function fetchData() {
     try {
       setLoading(true)
+      setRequestError('')
       const [repo, scansRes, findingsRes] = await Promise.all([
         api.getRepository(repositoryId!),
         api.listScans(repositoryId!),
@@ -58,8 +60,10 @@ export function SecurityPage() {
       setRepository(repo)
       setScans(scansRes)
       setFindings(findingsRes.findings)
+      setFindingsTotal(findingsRes.total)
     } catch (err) {
       console.error(err)
+      setRequestError(getErrorMessage(err, 'Could not load security data. Please try again.'))
     } finally {
       setLoading(false)
     }
@@ -72,6 +76,7 @@ export function SecurityPage() {
       await fetchData()
     } catch (err) {
       console.error(err)
+      setRequestError(getErrorMessage(err, 'Security scan could not be started. Please try again.'))
     } finally {
       setScanning(false)
     }
@@ -88,25 +93,18 @@ export function SecurityPage() {
       }
     } catch (err) {
       console.error(err)
+      setRequestError(getErrorMessage(err, 'Could not update this finding. Please try again.'))
     }
   }
 
   const getScanStatusIcon = (status: string) => {
     switch (status) {
-      case 'completed': return <CheckCircle className="h-4 w-4 text-green-400" />
-      case 'processing': return <Loader2 className="h-4 w-4 text-blue-400 animate-spin" />
-      case 'failed': return <XCircle className="h-4 w-4 text-red-400" />
-      default: return <Info className="h-4 w-4 text-yellow-400" />
+      case 'completed': return <CheckCircle className="h-4 w-4 text-status-success" />
+      case 'processing': return <Loader2 className="h-4 w-4 text-status-cyan animate-spin" />
+      case 'failed': return <XCircle className="h-4 w-4 text-status-danger" />
+      default: return <Info className="h-4 w-4 text-status-warning" />
     }
   }
-
-  const severityCounts = findings.reduce(
-    (acc, f) => {
-      acc[f.severity] = (acc[f.severity] || 0) + 1
-      return acc
-    },
-    {} as Record<string, number>
-  )
 
   const filteredFindings = findings
     .filter((f) => {
@@ -120,7 +118,7 @@ export function SecurityPage() {
     })
     .sort((a, b) => {
       const severityOrder = { critical: 0, high: 1, medium: 2, low: 3, info: 4 }
-      return (severityOrder[a.severity] || 5) - (severityOrder[b.severity] || 5)
+      return (severityOrder[a.severity] ?? 5) - (severityOrder[b.severity] ?? 5)
     })
 
   if (loading) {
@@ -144,9 +142,16 @@ export function SecurityPage() {
   }
 
   const latestScan = scans[0]
+  const severityCounts = latestScan ? {
+    critical: latestScan.critical_count,
+    high: latestScan.high_count,
+    medium: latestScan.medium_count,
+    low: latestScan.low_count,
+    info: latestScan.info_count,
+  } : findings.reduce((counts, finding) => ({ ...counts, [finding.severity]: (counts[finding.severity] || 0) + 1 }), {} as Record<string, number>)
 
   return (
-    <div className="space-y-6 animate-in">
+    <div className="space-y-5 animate-in">
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div className="flex items-center gap-4">
@@ -154,90 +159,50 @@ export function SecurityPage() {
             <ChevronLeft className="h-4 w-4" />
           </Link>
           <div>
-            <h1 className="text-2xl font-bold text-text-primary">Security Findings</h1>
-            <p className="text-text-secondary mt-1">{repository.display_name}</p>
+            <p className="text-[10px] uppercase tracking-[.15em] text-text-muted mb-1">Repository / Analysis</p>
+            <h1 className="text-xl font-semibold tracking-tight text-text-primary">Security findings</h1>
+            <p className="text-sm text-text-secondary mt-1">{repository.display_name}</p>
           </div>
         </div>
-        <Button onClick={handleScan} disabled={scanning || latestScan?.status === 'processing'}>
+        <Button size="sm" onClick={handleScan} disabled={scanning || latestScan?.status === 'processing'}>
           <Play className="h-4 w-4" />
           {scanning ? 'Scanning...' : latestScan?.status === 'processing' ? 'Scan in Progress' : 'Run Security Scan'}
         </Button>
       </div>
+      {requestError && <div className="rounded-md border border-red-500/30 bg-red-500/5 px-4 py-3 text-sm text-red-300" role="alert">{requestError}</div>}
 
-      {/* Repository Status */}
-      <Card padding="md" className="mb-4">
-        <div className="flex items-center justify-between flex-wrap gap-4">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-accent/10 rounded-lg">
-              <Shield className="h-5 w-5 text-accent" />
-            </div>
-            <div>
-              <h3 className="font-medium text-text-primary">Last Scan</h3>
-              <p className="text-sm text-text-secondary">
-                {latestScan
-                  ? `${getScanStatusIcon(latestScan.status)} ${latestScan.status.charAt(0).toUpperCase() + latestScan.status.slice(1)} • ${formatRelativeTime(latestScan.updated_at)}`
-                  : 'No scans yet'}
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-text-muted">Total Findings:</span>
-              <span className="text-lg font-bold text-text-primary">{findings.length}</span>
-            </div>
-          </div>
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-y border-surface-border py-2 text-xs">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+          <span className="inline-flex items-center gap-1.5 text-text-secondary"><Shield className="h-3.5 w-3.5 text-accent" />Latest scan</span>
+          {latestScan ? <span className="inline-flex items-center gap-1.5 text-text-primary">{getScanStatusIcon(latestScan.status)}<span className="capitalize">{latestScan.status}</span><span className="text-text-muted">· {formatRelativeTime(latestScan.updated_at)}</span></span> : <span className="text-text-muted">No scans yet</span>}
+          <span className="text-text-muted">{findingsTotal.toLocaleString()} findings</span>
         </div>
-      </Card>
+        <span className="text-[10px] text-text-muted">Severity totals reflect the latest scan when available</span>
+      </div>
 
-      {/* Severity Summary */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Shield className="h-5 w-5" />
-            Findings by Severity
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-            {[
-              { key: 'critical', label: 'Critical', color: 'red' },
-              { key: 'high', label: 'High', color: 'orange' },
-              { key: 'medium', label: 'Medium', color: 'yellow' },
-              { key: 'low', label: 'Low', color: 'green' },
-              { key: 'info', label: 'Info', color: 'blue' },
-            ].map(({ key, label, color }) => (
-              <Link
-                key={key}
-                to="#"
-                onClick={(e) => {
-                  e.preventDefault()
-                  setSeverityFilter(severityFilter === key ? 'all' : key)
-                }}
-                className={cn(
-                  'p-4 rounded-xl transition-all',
-                  severityFilter === key ? 'ring-2 ring-accent bg-accent/5' : 'bg-surface-border/30 hover:bg-surface-border/50'
-                )}
-              >
-                <div className="flex items-center justify-between">
-                  <span className={cn('text-sm font-medium', getSeverityColor(key))}>{label}</span>
-                  <span className="text-2xl font-bold text-text-primary">{severityCounts[key] || 0}</span>
-                </div>
-              </Link>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
+      <div className="overflow-x-auto border-b border-surface-border">
+        <div className="grid min-w-[580px] grid-cols-5 divide-x divide-surface-border border-t border-surface-border">
+          {[
+            { key: 'critical', label: 'Critical' },
+            { key: 'high', label: 'High' },
+            { key: 'medium', label: 'Medium' },
+            { key: 'low', label: 'Low' },
+            { key: 'info', label: 'Informational' },
+          ].map(({ key, label }) => <button key={key} type="button" aria-pressed={severityFilter === key} onClick={() => setSeverityFilter(severityFilter === key ? 'all' : key)} className={cn('flex items-center justify-between gap-2 px-3 py-2.5 text-left hover:bg-surface-hover/50 focus-visible:z-10', severityFilter === key && 'bg-accent/5')}>
+            <span className={cn('text-[11px] font-medium', getSeverityColor(key).split(' ')[0])}>{label}</span><span className="font-mono text-sm tabular-nums text-text-primary">{severityCounts[key] || 0}</span>
+          </button>)}
+        </div>
+      </div>
 
       {/* Filters */}
-      <Card padding="md">
-        <CardContent className="flex flex-wrap gap-4">
+      <div className="flex flex-wrap items-center gap-2 border-b border-surface-border py-2.5">
           <div className="relative flex-1 min-w-[200px]">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted" />
             <Input
-              placeholder="Search findings..."
+              placeholder="Search title, rule, or file…"
               value={searchQuery}
               onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearchQuery(e.target.value)}
-              className="pl-10"
+              className="pl-9 h-9 text-sm"
             />
           </div>
           <Select
@@ -245,88 +210,64 @@ export function SecurityPage() {
             onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setSeverityFilter(e.target.value)}
             options={severityOptions.map((s) => ({ value: s, label: s === 'all' ? 'All Severities' : s.charAt(0).toUpperCase() + s.slice(1) }))}
             placeholder="All Severities"
-            className="w-auto min-w-[150px]"
+            className="w-auto min-w-[130px] h-9 text-sm"
           />
           <Select
             value={categoryFilter}
             onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setCategoryFilter(e.target.value)}
             options={categoryOptions.map((c) => ({ value: c, label: c === 'all' ? 'All Categories' : c.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase()) }))}
             placeholder="All Categories"
-            className="w-auto min-w-[180px]"
+            className="w-auto min-w-[155px] h-9 text-sm"
           />
           <Select
             value={statusFilter}
             onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setStatusFilter(e.target.value)}
             options={statusOptions.map((s) => ({ value: s, label: s === 'all' ? 'All Statuses' : s.charAt(0).toUpperCase() + s.slice(1) }))}
             placeholder="All Statuses"
-            className="w-auto min-w-[150px]"
+            className="w-auto min-w-[130px] h-9 text-sm"
           />
-          <Button variant="ghost" onClick={fetchData} disabled={loading}>
+          <Button variant="ghost" size="sm" onClick={fetchData} disabled={loading}>
             <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} />
-            Refresh
+            <span className="hidden sm:inline">Refresh</span>
           </Button>
-        </CardContent>
-      </Card>
+          <span className="ml-auto w-full text-right text-[11px] text-text-muted sm:w-auto">Showing {filteredFindings.length} of {findingsTotal.toLocaleString()}</span>
+      </div>
 
       {/* Findings List */}
-      <Card>
-        <CardContent className="p-0">
+      <section aria-label="Security findings" className="border-b border-surface-border">
           {filteredFindings.length === 0 ? (
-            <div className="text-center py-16">
-              <Shield className="h-12 w-12 text-text-muted mx-auto mb-4" />
-              <h3 className="text-lg font-medium text-text-primary mb-2">
+            <div className="text-center py-12">
+              <Shield className="h-7 w-7 text-text-muted mx-auto mb-3" />
+              <h3 className="text-sm font-semibold text-text-primary mb-1">
                 {searchQuery || severityFilter !== 'all' || categoryFilter !== 'all' || statusFilter !== 'all'
                   ? 'No matching findings'
                   : 'No security findings'}
               </h3>
-              <p className="text-text-secondary">
+              <p className="text-xs text-text-secondary">
                 {searchQuery || severityFilter !== 'all' || categoryFilter !== 'all' || statusFilter !== 'all'
                   ? 'Try adjusting your filters'
                   : 'Run a security scan to find potential issues'}
               </p>
             </div>
           ) : (
-            <div className="divide-y divide-surface-border">
-              {filteredFindings.map((finding) => (
-                <button
-                  key={finding.id}
-                  onClick={() => {
-                    setSelectedFinding(finding)
-                    setDetailDrawerOpen(true)
-                  }}
-                  className="w-full p-4 text-left hover:bg-surface-hover/50 transition-colors flex items-start justify-between gap-4"
-                >
-                  <div className="flex items-start gap-3 min-w-0 flex-1">
-                    <Badge variant={finding.severity as any} className="flex-shrink-0 mt-0.5">
-                      {finding.severity.charAt(0).toUpperCase() + finding.severity.slice(1)}
-                    </Badge>
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <p className="font-medium text-text-primary truncate">{finding.title}</p>
-                        <Badge variant="default" className="text-xs">{finding.category.replace('_', ' ')}</Badge>
-                        <Badge variant={finding.confidence as any} className="text-xs">{finding.confidence} confidence</Badge>
-                        <Badge variant={finding.status as any} className="text-xs">{finding.status}</Badge>
-                      </div>
-                      <div className="flex items-center gap-3 mt-1 text-xs text-text-muted flex-wrap">
-                        {finding.file_path && (
-                          <span className="font-mono truncate max-w-[300px]">
-                            {finding.file_path}:{finding.start_line || 1}-{finding.end_line || '?'}
-                          </span>
-                        )}
-                        <span>{finding.rule_id}</span>
-                        <span>{formatRelativeTime(finding.created_at)}</span>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <Eye className="h-4 w-4 text-text-muted" />
-                  </div>
-                </button>
-              ))}
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[780px] text-left text-sm">
+                <thead><tr className="border-b border-surface-border text-[10px] uppercase tracking-[.12em] text-text-muted">
+                  <th scope="col" className="py-2.5 pl-3 pr-4 font-semibold">Finding</th><th scope="col" className="px-3 py-2.5 font-semibold">Severity</th><th scope="col" className="px-3 py-2.5 font-semibold">Location</th><th scope="col" className="px-3 py-2.5 font-semibold">Status</th><th scope="col" className="px-3 py-2.5 font-semibold">Updated</th>
+                </tr></thead>
+                <tbody className="divide-y divide-surface-border/80">
+                  {filteredFindings.map((finding) => <tr key={finding.id} className="hover:bg-surface-hover/40">
+                    <td className="py-2.5 pl-3 pr-4"><button type="button" onClick={() => { setSelectedFinding(finding); setDetailDrawerOpen(true) }} className="block max-w-full rounded-sm text-left focus-visible:outline-accent" aria-label={`Inspect ${finding.title}`}><span className="block truncate font-medium text-text-primary">{finding.title}</span><span className="mt-0.5 flex items-center gap-2 text-[10px] text-text-muted"><span className="font-mono">{finding.rule_id}</span><span>·</span><span className="capitalize">{finding.category.replace('_', ' ')}</span></span></button></td>
+                    <td className="px-3 py-2.5"><Badge variant={finding.severity as any}>{finding.severity}</Badge><span className="ml-1.5 text-[10px] text-text-muted">{finding.confidence} confidence</span></td>
+                    <td className="px-3 py-2.5"><span className="block max-w-[280px] truncate font-mono text-[11px] text-text-secondary">{finding.file_path || '—'}</span><span className="text-[10px] text-text-muted">{finding.file_path ? `L${finding.start_line || 1}–L${finding.end_line || '?'}` : 'No file location'}</span></td>
+                    <td className="px-3 py-2.5"><Badge variant={finding.status as any}>{finding.status}</Badge></td>
+                    <td className="px-3 py-2.5 whitespace-nowrap text-xs text-text-muted">{formatRelativeTime(finding.updated_at)}</td>
+                  </tr>)}
+                </tbody>
+              </table>
             </div>
           )}
-        </CardContent>
-      </Card>
+      </section>
 
       {/* Finding Detail Drawer */}
       <Modal
