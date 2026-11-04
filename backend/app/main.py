@@ -7,7 +7,7 @@ from app.core.errors import register_exception_handlers
 from app.core.logging import configure_logging, get_logger
 from app.core.request_limits import UploadBodyLimitMiddleware
 from app.db.session import close_db, init_db
-from app.api.routes import health, repositories, indexing, chat, security
+from app.api.routes import health, repositories, indexing, chat, security, graph
 
 logger = get_logger(__name__)
 settings = get_settings()
@@ -63,6 +63,7 @@ app.include_router(repositories.router, prefix=f"{settings.api_prefix}/repositor
 app.include_router(indexing.router, prefix=settings.api_prefix, tags=["indexing"])
 app.include_router(chat.router, prefix=f"{settings.api_prefix}/repositories", tags=["chat"])
 app.include_router(security.router, prefix=f"{settings.api_prefix}/repositories", tags=["security"])
+app.include_router(graph.router, prefix=f"{settings.api_prefix}/repositories", tags=["dependency graph"])
 
 
 @app.get("/")

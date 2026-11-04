@@ -158,6 +158,57 @@ export interface HealthResponse {
   timestamp: string
 }
 
+export interface DependencyGraphNode {
+  id: string
+  type: 'file'
+  label: string
+  path: string
+  language: string
+  degree: number
+  x: number
+  y: number
+}
+
+export interface DependencyGraphEdge {
+  source: string
+  target: string
+  type: 'imports'
+  source_lines: number[]
+}
+
+export interface DependencyGraphResponse {
+  repository_id: string
+  repository_name: string
+  nodes: DependencyGraphNode[]
+  edges: DependencyGraphEdge[]
+  files_analyzed: number
+  python_files: number
+  resolved_relationships: number
+  parse_errors: number
+  truncated: boolean
+  coverage: { languages: string[]; relationship_types: string[]; partial: boolean }
+}
+
+export interface DependencyNodeDetails {
+  repository_id: string
+  depth: number
+  node: DependencyGraphNode
+  direct_dependencies: string[]
+  direct_dependents: string[]
+  dependencies: string[]
+  dependents: string[]
+  dependency_count: number
+  dependent_count: number
+}
+
+export interface DependencyImpactResponse {
+  repository_id: string
+  node_id: string
+  depth: number
+  affected_dependents: string[]
+  direct_dependents: string[]
+}
+
 export interface ApiError {
   code: string
   message: string

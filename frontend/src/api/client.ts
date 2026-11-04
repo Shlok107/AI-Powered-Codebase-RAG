@@ -1,5 +1,5 @@
 import axios, { AxiosError, AxiosInstance, InternalAxiosRequestConfig } from 'axios'
-import type { Repository, FileContentResponse, ChatResponse, SecurityFinding, SecurityScan, Job, ApiError } from '../types'
+import type { Repository, FileContentResponse, ChatResponse, SecurityFinding, SecurityScan, Job, ApiError, DependencyGraphResponse, DependencyNodeDetails, DependencyImpactResponse } from '../types'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1'
 
@@ -73,6 +73,21 @@ class ApiClient {
 
   async getRepository(id: string) {
     const response = await this.client.get<Repository>(`/repositories/${id}`)
+    return response.data
+  }
+
+  async getDependencyGraph(repositoryId: string, params?: { query?: string; relationship_type?: string; language?: string }) {
+    const response = await this.client.get<DependencyGraphResponse>(`/repositories/${repositoryId}/graph`, { params })
+    return response.data
+  }
+
+  async getDependencyNode(repositoryId: string, nodeId: string, depth = 1) {
+    const response = await this.client.get<DependencyNodeDetails>(`/repositories/${repositoryId}/graph/node`, { params: { node_id: nodeId, depth } })
+    return response.data
+  }
+
+  async getDependencyImpact(repositoryId: string, nodeId: string, depth = 1) {
+    const response = await this.client.get<DependencyImpactResponse>(`/repositories/${repositoryId}/graph/impact`, { params: { node_id: nodeId, depth } })
     return response.data
   }
 
