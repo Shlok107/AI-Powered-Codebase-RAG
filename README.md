@@ -2,264 +2,380 @@
 
 **Codebase Intelligence and Security Analysis Platform**
 
-A full-stack web application that ingests code repositories, indexes their contents, answers questions grounded in the codebase with file-and-line citations, and runs security/configuration checks with actionable findings.
+Codebase RAG turns a source-code repository into an explorable, searchable knowledge base. Upload a ZIP archive, index its files, ask questions with source citations, review static security findings, and inspect internal Python import relationships.
 
-## Features
+[![Automated tests](https://github.com/Shlok107/AI-Powered-Codebase-RAG/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/Shlok107/AI-Powered-Codebase-RAG/actions/workflows/tests.yml)
 
-- **Repository Upload**: Safe ZIP upload with ZIP slip protection and decompression limits
-- **Code-Aware Indexing**: AST-based chunking for Python, Tree-sitter support, fallback for other languages
-- **Semantic Search**: PostgreSQL/pgvector for embeddings with hybrid vector + keyword retrieval
-- **Grounded Q&A**: Ask questions about the codebase with citations to exact file paths and line numbers
-- **Security Scanning**: Detect secrets, dangerous code patterns, dependency risks, and infrastructure misconfigurations
-- **Modern UI**: Dark-mode-first developer dashboard with responsive design
+---
 
-## Tech Stack
+## Contents
 
-### Backend
-- Python 3.11+
-- FastAPI
-- SQLAlchemy 2.x + Alembic
-- PostgreSQL + pgvector
-- Pydantic v2
-- sentence-transformers (local embeddings)
+- [What it does](#what-it-does)
+- [How it works](#how-it-works)
+- [Technology](#technology)
+- [Run locally with Docker](#run-locally-with-docker)
+- [Configure AI providers](#configure-ai-providers)
+- [Use the application](#use-the-application)
+- [Dependency graph scope](#dependency-graph-scope)
+- [Security and operational notes](#security-and-operational-notes)
+- [Run tests](#run-tests)
+- [Project layout](#project-layout)
+- [Current limitations](#current-limitations)
+- [Deployment status](#deployment-status)
+- [License](#license)
 
-### Frontend
-- React 18 + TypeScript
-- Vite
-- Tailwind CSS
-- React Router
+## What it does
 
-### Infrastructure
-- Docker & Docker Compose
-- AWS ECS/S3/RDS/SQS ready (configuration only)
+### Repository ingestion and indexing
+- Upload source repositories as ZIP archives.
+- Validate and extract archives with path-traversal protections and configurable size, file-count, and compression-ratio limits.
+- Detect file languages and preserve repository paths and line ranges.
+- Split Python source into AST-aware function/class chunks; use line-based chunking for other supported files.
+- Generate and store embeddings alongside source chunks in PostgreSQL with pgvector.
 
-## Quick Start
+### Codebase Q&A
+- Ask natural-language questions about an indexed repository.
+- Retrieve relevant chunks using vector similarity and keyword retrieval.
+- Generate answers through an OpenAI-compatible chat-completions endpoint.
+- Return file and line citations with answers.
+- Use an extractive fallback when an AI model is unavailable; this fallback is not a substitute for model-generated reasoning.
+
+### Security analysis
+- Run static checks for hardcoded secrets and suspicious or dangerous code patterns.
+- Inspect infrastructure configuration, including Docker-related settings.
+- Check supported dependency manifests and lockfiles against the [OSV vulnerability database](https://osv.dev/).
+- Review findings by severity, category, file, and status; update finding triage status.
+- Surface incomplete advisory coverage rather than treating unavailable or capped checks as clean results.
+
+### Dependency graph
+- Explore resolved internal Python import relationships.
+- Switch between repository overview, directory/file exploration, and a selected file's dependency view.
+- Inspect incoming dependencies, outgoing dependencies, and reverse impact.
+- Search files and navigate the graph with zoom, pan, selection, and layout controls.
+
+The graph is intentionally limited to statically resolvable Python imports. See [Dependency graph scope](#dependency-graph-scope).
+
+## How it works
+
+```mermaid
+flowchart LR
+    A[ZIP repository] --> B[Safe extraction]
+    B --> C[File inventory]
+    C --> D[Code-aware chunking]
+    D --> E[Embedding provider]
+    E --> F[(PostgreSQL + pgvector)]
+    G[User question] --> H[Hybrid retrieval]
+    F --> H
+    H --> I[LLM provider]
+    I --> J[Answer + source citations]
+    C --> K[Static security checks]
+    C --> L[Python import graph]
+    K --> M[Security findings]
+    L --> N[Dependency graph UI]
+```
+
+The local Docker Compose stack contains three services:
+
+| Service | Responsibility | Local address |
+|---|---|---|
+| `frontend` | React application served by Nginx | http://localhost:5173 |
+| `backend` | FastAPI API, ingestion, indexing and analysis | http://localhost:8001 |
+| `db` | PostgreSQL with pgvector | localhost:5433 |
+
+The backend runs database migrations at container startup. Indexing and scan jobs are currently launched by the API process; this project does not currently deploy separate worker containers or an external queue.
+
+## Technology
+
+| Layer | Technologies |
+|---|---|
+| Backend | Python 3.11+, FastAPI, Pydantic v2, SQLAlchemy 2, Alembic |
+| Database | PostgreSQL 16, pgvector |
+| Retrieval | Vector similarity, keyword retrieval, hybrid ranking |
+| Embeddings | Sentence Transformers (local) or an OpenAI-compatible embeddings endpoint |
+| LLM | OpenAI-compatible chat-completions endpoint |
+| Dependency analysis | Python AST, NetworkX |
+| Frontend | React 18, TypeScript, Vite, Tailwind CSS, React Router |
+| Runtime | Docker, Docker Compose, Nginx |
+| Dependency advisories | OSV API |
+
+## Run locally with Docker
 
 ### Prerequisites
-- Docker and Docker Compose
-- Git (optional)
 
-### Using Docker Compose
+- Docker Desktop with Docker Compose v2 (Windows/macOS) or Docker Engine with the Compose plugin (Linux).
+- Git.
+- An available local port for each published service: 5173, 8001 and 5433.
+
+### 1. Clone the repository
 
 ```bash
-# Clone the repository
 git clone https://github.com/Shlok107/AI-Powered-Codebase-RAG.git
 cd AI-Powered-Codebase-RAG
+```
 
-# Copy environment file
+### 2. Create the environment file
+
+**PowerShell (Windows):**
+
+```powershell
+Copy-Item .env.example .env
+```
+
+**macOS / Linux:**
+
+```bash
 cp .env.example .env
-
-# Start all services
-docker compose up -d --build
-
-# Wait for services to be healthy, then run migrations
-docker-compose exec backend alembic upgrade head
-
-# Access the application
-# Frontend: http://localhost:5173
-# Backend API: http://localhost:8001
-# API Docs: http://localhost:8001/docs
 ```
 
-### Manual Development Setup
+The example configuration is sufficient to start the application, but AI-powered retrieval and answers require provider configuration. See [Configure AI providers](#configure-ai-providers).
 
-#### Backend
+### 3. Build and start the stack
+
 ```bash
-cd backend
-
-# Create virtual environment
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# Install dependencies
-pip install -e ".[dev]"
-
-# Set environment variables
-cp ../.env.example .env
-# Edit .env with your settings
-
-# Run migrations
-alembic upgrade head
-
-# Start server
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+docker compose up --build -d
 ```
 
-#### Frontend
+Check service status:
+
 ```bash
-cd frontend
-
-# Install dependencies
-npm install
-
-# Start dev server
-npm run dev
+docker compose ps
 ```
 
-## Configuration
+Follow backend logs:
 
-See `.env.example` for all available options. Key settings:
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `DATABASE_URL` | PostgreSQL connection string | `postgresql+psycopg://postgres:postgres@db:5432/codebase_rag` |
-| `LLM_PROVIDER` | LLM provider (`openai_compatible`, `none`) | `none` |
-| `LLM_BASE_URL` | OpenAI-compatible API base URL | - |
-| `LLM_API_KEY` | LLM API key | - |
-| `LLM_MODEL` | Model name | - |
-| `EMBEDDING_PROVIDER` | Embedding provider (`openai_compatible`, `sentence_transformers`, `none`) | `none` |
-| `EMBEDDING_MODEL` | Embedding model name | `sentence-transformers/all-MiniLM-L6-v2` |
-| `EMBEDDING_DIMENSIONS` | Vector dimensions | `384` |
-| `MAX_UPLOAD_MB` | Max upload size in MB | `50` |
-
-### Upload limits and deployment boundary
-
-ZIP uploads are limited by `MAX_UPLOAD_MB` (50 MiB by default), `MAX_ARCHIVE_FILES` (10,000 entries), `MAX_UNCOMPRESSED_MB` (300 MiB of declared expansion), `MAX_SINGLE_FILE_MB` (5 MiB per indexed file), `MAX_ARCHIVE_PATH_LENGTH` (1,024 characters), and `MAX_ARCHIVE_COMPRESSION_RATIO` (1,000:1). The extractor also enforces per-file and aggregate limits while streaming actual decompressed bytes. Large supported source files are rejected rather than silently omitted. These settings can be set in the backend environment; `.env.example` lists the local defaults.
-
-Dependency vulnerability checks query the OSV database for exact versions from supported manifests and lock files (requirements, `pyproject.toml`, npm lock files, Poetry/uv/Cargo lock files, and `go.mod`). `MAX_DEPENDENCY_QUERIES` and `MAX_DEPENDENCY_ADVISORIES` cap per-scan work. Advisory responses are cached in process for six hours. An unavailable service, malformed manifest, or reached cap is reported as incomplete coverage on the scan; it does not convert an unknown result into a clean result. Version ranges in unlocked manifests are not resolved, and the scanner does not claim to report general package freshness.
-
-The Docker Compose stack binds its published ports to `127.0.0.1` and is for local development. The frontend is at `127.0.0.1:5173`, the backend API at `127.0.0.1:8001` (container port 8000), and PostgreSQL at `127.0.0.1:5433` (container port 5432). The alternate host ports avoid collisions with native services on the standard ports; containers use the internal `db:5432` address. The API currently has no authentication or per-user repository authorization; do not expose it directly to a network or public internet. A public deployment requires an identity provider, per-repository authorization, production database credentials managed by a secret store, TLS termination, and an edge/API gateway with request and operation rate limits. CORS restrictions do not replace authentication. The backend image defaults `APP_ENV` to `production`; Compose explicitly sets development mode for local use.
-
-### LLM Provider Configuration
-
-For AI-powered Q&A, configure an OpenAI-compatible endpoint:
-
-```env
-LLM_PROVIDER=openai_compatible
-LLM_BASE_URL=https://api.openai.com/v1
-LLM_API_KEY=your-api-key
-LLM_MODEL=gpt-4
+```bash
+docker compose logs -f backend
 ```
 
-For local models (Ollama, vLLM, etc.):
-```env
-LLM_PROVIDER=openai_compatible
-LLM_BASE_URL=http://localhost:11434/v1
-LLM_API_KEY=ollama
-LLM_MODEL=nemotron-3-ultra
+The backend container applies Alembic migrations before starting Uvicorn. You do not need to run the migration command separately when using this Compose configuration.
+
+### 4. Open the application
+
+- **Frontend:** http://localhost:5173
+- **Backend API:** http://localhost:8001
+- **Interactive API docs:** http://localhost:8001/docs
+
+The API documentation is enabled by the Compose development configuration.
+
+### Stop the application
+
+```bash
+docker compose down
 ```
 
-### Embedding Provider Configuration
+This stops and removes the containers but keeps the named database and repository-storage volumes.
 
-For local embeddings (no API key needed):
+To remove the volumes and permanently delete locally stored database records and uploaded repository files as well:
+
+```bash
+docker compose down -v
+```
+
+Use `down -v` only when you intentionally want to reset local application data.
+
+## Configure AI providers
+
+Provider settings are read from the root `.env` file by Docker Compose. The example file defaults both providers to `none`, so the application can start without external AI credentials.
+
+### Embeddings
+
+For local embeddings using Sentence Transformers:
+
 ```env
 EMBEDDING_PROVIDER=sentence_transformers
 EMBEDDING_MODEL=sentence-transformers/all-MiniLM-L6-v2
 EMBEDDING_DIMENSIONS=384
 ```
 
-For OpenAI-compatible embeddings:
+The Docker image includes CPU PyTorch and Sentence Transformers. The model is downloaded when it is first loaded, so the first indexing run may take longer and requires network access to the model host.
+
+For an OpenAI-compatible embedding service:
+
 ```env
 EMBEDDING_PROVIDER=openai_compatible
-EMBEDDING_BASE_URL=https://api.openai.com/v1
-EMBEDDING_API_KEY=your-api-key
-EMBEDDING_MODEL=text-embedding-3-small
-EMBEDDING_DIMENSIONS=1536
+EMBEDDING_BASE_URL=https://your-provider.example/v1
+EMBEDDING_API_KEY=your-embedding-key
+EMBEDDING_MODEL=your-embedding-model
+EMBEDDING_DIMENSIONS=384
 ```
 
-## Usage
+Set `EMBEDDING_DIMENSIONS` to the actual output size of the selected model. It must match the vector column/index configuration used by the application.
 
-1. **Upload a Repository**: Go to Repositories page, click "Upload Repository", select a ZIP file
-2. **Wait for Indexing**: The repository will be processed and indexed automatically
-3. **Ask Questions**: Go to "Ask Codebase", select the repository, ask questions
-4. **Run Security Scan**: Go to "Security", click "Run Security Scan"
-5. **Review Findings**: Filter by severity, category, file, and status
+### Chat model
 
-## Project Structure
+For an OpenAI-compatible chat endpoint:
 
+```env
+LLM_PROVIDER=openai_compatible
+LLM_BASE_URL=https://your-provider.example/v1
+LLM_API_KEY=your-chat-key
+LLM_MODEL=your-chat-model
 ```
-codebase-rag/
+
+For a local Ollama-compatible service running on the host while the backend is in Docker, use the host gateway rather than `localhost`:
+
+```env
+LLM_PROVIDER=openai_compatible
+LLM_BASE_URL=http://host.docker.internal:11434/v1
+LLM_API_KEY=ollama
+LLM_MODEL=your-installed-model
+```
+
+The model name must match a model served by your endpoint. The endpoint must expose the OpenAI-compatible `/chat/completions` API. The embedding endpoint, if used, must expose `/embeddings`.
+
+> **Cost note:** Local Sentence Transformers embeddings do not require a paid API. A local chat model can also avoid per-request model API charges, but it requires suitable local hardware and a running inference server. OSV dependency-advisory lookups use the external OSV service.
+
+### Other useful settings
+
+Most limits and defaults are documented inline in [`.env.example`](.env.example).
+
+| Variable | Purpose | Example default |
+|---|---|---|
+| `MAX_UPLOAD_MB` | Maximum ZIP upload size | `50` |
+| `MAX_ARCHIVE_FILES` | Maximum archive entries | `10000` |
+| `MAX_UNCOMPRESSED_MB` | Maximum total extracted size | `300` |
+| `MAX_SINGLE_FILE_MB` | Maximum size of one indexed file | `5` |
+| `MAX_ARCHIVE_PATH_LENGTH` | Maximum archive path length | `1024` |
+| `MAX_ARCHIVE_COMPRESSION_RATIO` | Maximum accepted compression ratio | `1000` |
+| `MAX_DEPENDENCY_QUERIES` | Maximum OSV queries in a scan | `1000` |
+| `MAX_DEPENDENCY_ADVISORIES` | Maximum advisories processed per scan | `100` |
+| `CHUNK_SIZE` / `CHUNK_OVERLAP` | Chunking configuration | `1200` / `150` |
+| `RETRIEVAL_TOP_K` | Retrieval result limit | `6` |
+
+## Use the application
+
+1. **Upload a repository.** Open **Repositories**, choose **Add repository**, and upload a ZIP archive (maximum 50 MiB by default).
+2. **Wait for indexing.** The repository moves through its processing states. Once indexed, its chunks are available for retrieval.
+3. **Ask questions.** Open **Ask Codebase**, select the repository, and submit a question. Answers include source citations when evidence is retrieved.
+4. **Run a security scan.** Open **Security**, select a repository, and start a scan. Review findings and update their triage status.
+5. **Explore dependencies.** Open **Dependency Graph**, select an indexed repository, and inspect its Python import relationships.
+
+## Dependency graph scope
+
+The dependency graph is a computed-on-request view of source files stored for an indexed repository.
+
+- **Supported language:** Python.
+- **Relationship type:** Resolvable internal imports found through Python AST parsing.
+- **Not modeled:** JavaScript/TypeScript or other language imports, runtime call graphs, dynamic imports that cannot be resolved statically, and external package dependency edges.
+- **Coverage:** Parse failures and unresolved imports are not converted into guessed relationships. The UI reports partial Python coverage.
+- **Response bounds:** The graph service caps the response at 250 files and 800 relationships.
+- **Persistence:** Graphs are recomputed from repository source when requested; graph relationships are not stored in separate database tables.
+
+The graph describes static import relationships, not proof that a module is executed at runtime or a complete representation of every dependency.
+
+## Security and operational notes
+
+### Archive handling and source processing
+
+- ZIP extraction validates paths and enforces configurable upload, entry-count, per-file, aggregate expansion, path-length and compression-ratio limits.
+- Uploaded source code is parsed and analyzed; it is not executed or imported by the indexing or dependency-graph pipeline.
+- Secret-like values in findings and logs are handled with redaction safeguards.
+
+### Dependency vulnerability coverage
+
+The dependency scanner queries OSV for exact versions it can resolve from supported manifest and lockfile formats, including requirements files, `pyproject.toml`, npm lockfiles, Poetry/uv lockfiles, `Cargo.lock`, and `go.mod`.
+
+It does not resolve arbitrary version ranges from unlocked manifests or provide a general package-freshness assessment. Unavailable services, malformed manifests and configured work limits are reported as incomplete coverage, not as a clean scan.
+
+### Network exposure
+
+The Compose ports bind to loopback (`127.0.0.1`) for local development. The API currently has **no authentication or per-user repository authorization**. Do not expose this stack directly to a LAN or the public internet.
+
+A production deployment would need, at minimum, authentication, repository-level authorization, TLS, managed secrets, production database credentials, and appropriate API/operation rate limits. CORS settings alone are not an access-control mechanism.
+
+## Run tests
+
+### Backend
+
+```bash
+cd backend
+python -m venv .venv
+```
+
+Activate the environment:
+
+**PowerShell:**
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+```
+
+**macOS / Linux:**
+
+```bash
+source .venv/bin/activate
+```
+
+Install backend development and local-embedding dependencies, then run tests:
+
+```bash
+python -m pip install -e ".[dev,local-embeddings]"
+python -m pytest
+```
+
+Database-backed tests require `TEST_DATABASE_URL` to point to an isolated PostgreSQL database with pgvector enabled. The test configuration rejects database names that do not contain `test`; do not point it at your development database.
+
+### Frontend
+
+```bash
+cd frontend
+npm ci
+npm test
+npm run test:coverage
+npm run build
+```
+
+The frontend development server is available with `npm run dev` (Vite, port 5173).
+
+### Continuous integration
+
+The GitHub Actions workflow in [`.github/workflows/tests.yml`](.github/workflows/tests.yml) runs backend tests with PostgreSQL/pgvector, dependency audits, frontend tests with coverage, and a production frontend build.
+
+## Project layout
+
+```text
+.
 ├── backend/
 │   ├── app/
-│   │   ├── api/routes/       # API endpoints
-│   │   ├── core/             # Config, logging, errors
-│   │   ├── db/               # Database models, session
-│   │   ├── schemas/          # Pydantic schemas
-│   │   ├── services/         # Business logic
-│   │   └── workers/          # Background jobs
+│   │   ├── api/routes/       # FastAPI endpoints
+│   │   ├── core/             # Settings, logging, request limits
+│   │   ├── db/               # SQLAlchemy models and sessions
+│   │   ├── services/         # Ingestion, chunking, RAG, security, graph
+│   │   ├── workers/          # Indexing and security scan jobs
+│   │   └── tests/            # Unit and integration tests
 │   ├── alembic/              # Database migrations
-│   └── Dockerfile
+│   ├── Dockerfile
+│   └── pyproject.toml
 ├── frontend/
 │   ├── src/
-│   │   ├── api/              # API client
-│   │   ├── components/       # Reusable UI components
-│   │   ├── features/         # Feature-specific components
-│   │   ├── layouts/          # Page layouts
-│   │   ├── pages/            # Page components
-│   │   ├── hooks/            # Custom React hooks
+│   │   ├── api/              # Backend API client
+│   │   ├── components/       # Shared UI components
+│   │   ├── layouts/          # Application layout
+│   │   ├── pages/            # Application pages
 │   │   ├── types/            # TypeScript types
-│   │   └── utils/            # Utilities
-│   └── Dockerfile
-├── sample-repo/              # Sample repository for testing
+│   │   └── utils/            # Frontend utilities
+│   ├── Dockerfile
+│   └── package.json
+├── sample-repo/              # Sample source repository
+├── scripts/                  # Project helper scripts
 ├── docker-compose.yml
 ├── .env.example
 └── README.md
 ```
 
-## Architecture
+## Current limitations
 
-```
-┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│  Frontend   │────▶│   Backend   │────▶│  PostgreSQL │
-│  (React)    │     │  (FastAPI)  │     │  + pgvector │
-└─────────────┘     └─────────────┘     └─────────────┘
-                           │
-                           ▼
-                    ┌─────────────┐
-                    │  Workers    │
-                    │ (Indexing,  │
-                    │  Scanning)  │
-                    └─────────────┘
-```
+- ZIP upload is the supported repository-ingestion path; a Git URL connector is not implemented.
+- Dependency graph coverage is currently limited to statically resolvable Python imports.
+- Conversation history is not persisted as a durable server-side chat session.
+- Security analysis is static and rule-based; findings should be reviewed in context and are not a guarantee that a repository is secure.
+- OSV advisory coverage depends on external service availability and exact versions that can be resolved from supported files.
+- The API is a local-development MVP and is not production-hardened or access-controlled.
 
-### Data Flow
+## Deployment status
 
-1. **Ingestion**: ZIP upload → Safe extraction → File inventory → Language detection
-2. **Chunking**: Code-aware parsing (AST/Tree-sitter) → Line-range preserving chunks
-3. **Embedding**: Batch embedding generation → pgvector storage
-4. **Retrieval**: Vector similarity + keyword search → Hybrid ranking → Top-K
-5. **Answer**: Context construction → LLM call → Citation validation → Response
-
-## Security Considerations
-
-- **Safe ZIP Extraction**: Path traversal protection, size limits, decompression bomb prevention
-- **No Code Execution**: Uploaded code is never executed or imported
-- **Secret Redaction**: Credentials are redacted in findings and logs
-- **Input Validation**: All inputs validated at API boundary
-- **SQL Safety**: Parameterized queries via SQLAlchemy
-- **Prompt Injection Protection**: Repository content treated as untrusted
-- **Local Exposure**: Compose ports bind to loopback; the API has no authentication or per-user authorization and is not suitable for direct public exposure
-- **Dependency Advisories**: Exact lockfile versions are checked against OSV when available; unavailable or capped checks are surfaced as incomplete coverage
-
-## AWS Deployment (Configuration Only)
-
-The application is designed for AWS deployment with:
-- **ECS**: Containerized API and worker tasks
-- **S3**: Repository archives and artifacts
-- **RDS PostgreSQL**: Primary database with pgvector
-- **SQS**: Asynchronous job queue
-- **IAM**: Least-privilege roles
-- **Secrets Manager**: Secure credential injection
-
-Note: This configuration is provided but not deployed. AWS deployment is planned but has not been implemented yet.
-
-## Limitations
-
-- MVP implementation - not production-hardened
-- Local embeddings require sentence-transformers dependencies
-- No Git URL connector (ZIP upload only)
-- No persistent chat history in MVP
-- Dependency advisory lookup requires OSV availability for current vulnerability intelligence; offline scans report incomplete coverage
-- Single embedding model per index (dimension validation enforced)
+The application currently runs locally through Docker Compose. AWS deployment is **not implemented**. The `AWS_REGION`, `S3_BUCKET`, and `SQS_QUEUE_URL` entries in `.env.example` are configuration placeholders; they do not provision or connect the application to ECS, S3, RDS or SQS.
 
 ## License
 
-A license file has not been added yet.
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Run tests and linting
-5. Submit a pull request
+No license file has been added. All rights are reserved unless and until a license is provided.
